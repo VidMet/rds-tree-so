@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Viewer & Editor v1.2</title>
+  <title>RDS Viewer & Editor v1.2.1</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -105,7 +105,7 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Viewer <span class="version">v1.2</span></h1>
+    <h1>RDS Viewer <span class="version">v1.2.1</span></h1>
     <p>Hierarkisk visning & Batch-editering</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
@@ -115,7 +115,8 @@
 <div id="editPanel">
   <input type="text" id="newRunningNumber" class="input-field" placeholder="Nytt løp.nr (eks: 04)">
   <button class="btn btn-primary" id="queueBtn" disabled>➕ Legg til i kø</button>
-  <div style="flex-grow: 1;"></div> <button class="btn btn-danger" id="clearBtn" disabled>Tøm</button>
+  <div style="flex-grow: 1;"></div>
+  <button class="btn btn-danger" id="clearBtn" disabled>Tøm</button>
   <button class="btn btn-success" id="exportBtn" disabled>💾 Eksporter (0)</button>
 </div>
 
@@ -127,7 +128,7 @@
 
 <script>
 let API = null;
-let EXPORT_QUEUE = []; // Her lagrer vi alle endringene
+let EXPORT_QUEUE = [];
 
 const $ = id => document.getElementById(id);
 const setStatus = (m, c='') => { $('statusBar').textContent = m; $('statusBar').className = c; };
@@ -158,7 +159,9 @@ function slaaSammen(props, nøkkel1, nøkkel2) {
     return "Udefinert";
 }
 
-// Hovedfunksjon for bygging av treet
+// -----------------------------------------------------
+// 1. BYGG RDS-TRE
+// -----------------------------------------------------
 $('scanBtn').addEventListener('click', async () => {
   if (!API) return;
   $('scanBtn').disabled = true;
@@ -237,8 +240,9 @@ $('scanBtn').addEventListener('click', async () => {
   }
 });
 
-
-// LOGIKK FOR Å LEGGE TIL I KØ
+// -----------------------------------------------------
+// 2. KØ OG EKSPORT-LOGIKK
+// -----------------------------------------------------
 const EGENSKAPER_SOM_SKAL_OPPDATERES = [
     "01. rds-tag", 
     "15. hhhnnnnn", 
@@ -258,6 +262,7 @@ $('clearBtn').addEventListener('click', () => {
     setStatus('🗑️ Køen er tømt.', 'ok');
 });
 
+// KORRIGERT: Henter markeringen riktig fra sel.objectRuntimeIds
 $('queueBtn').addEventListener('click', async () => {
     const newNumber = $('newRunningNumber').value.trim();
     if (!newNumber) {
@@ -270,7 +275,6 @@ $('queueBtn').addEventListener('click', async () => {
         
         const selection = await API.viewer.getSelection();
         
-        // OPPDATERT LOGIKK: Teller opp antall valgte objekter på tvers av alle innlastede modeller
         let totalSelected = 0;
         if (selection && selection.length > 0) {
             selection.forEach(sel => {
@@ -289,7 +293,6 @@ $('queueBtn').addEventListener('click', async () => {
 
         for (const sel of selection) {
             const mid = sel.modelId;
-            // OPPDATERT: Henter ID-ene fra riktig variabel i datastrukturen
             const runtimeIds = sel.objectRuntimeIds; 
             
             if (!runtimeIds || runtimeIds.length === 0) continue;
@@ -346,8 +349,6 @@ $('queueBtn').addEventListener('click', async () => {
     }
 });
 
-
-// LOGIKK FOR EKSPORT AV KØEN
 $('exportBtn').addEventListener('click', () => {
     if (EXPORT_QUEUE.length === 0) return;
 
@@ -365,21 +366,18 @@ $('exportBtn').addEventListener('click', () => {
         URL.revokeObjectURL(url);
 
         setStatus(`🎉 Eksporterte JSON-fil med ${EXPORT_QUEUE.length} endringer.`, 'ok');
-        
-        // Frivillig: Tøm køen automatisk etter eksport?
-        // EXPORT_QUEUE = [];
-        // oppdaterUI();
-
     } catch (error) {
         setStatus(`❌ Feil under eksport: ${error.message}`, 'error');
     }
 });
 
-
-// Hjelpefunksjoner for trestruktur
+// -----------------------------------------------------
+// 3. UI OG TRESTRUKTUR
+// -----------------------------------------------------
 function tellObjekter(nodeMap) { let count = nodeMap.objekter.length; for (const key in nodeMap.barn) { count += tellObjekter(nodeMap.barn[key]); } return count; }
 function hentAlleIds(nodeMap) { let idMap = {}; nodeMap.objekter.forEach(obj => { if (!idMap[obj.modelId]) idMap[obj.modelId] = []; idMap[obj.modelId].push(Number(obj.runtimeId)); }); for (const key in nodeMap.barn) { const barnIds = hentAlleIds(nodeMap.barn[key]); for (const mid in barnIds) { if (!idMap[mid]) idMap[mid] = []; idMap[mid].push(...barnIds[mid]); } } return idMap; }
 function formaterForMarkering(idMap) { return Object.keys(idMap).map(mid => ({ modelId: mid, objectRuntimeIds: idMap[mid] })); }
+
 function tegnOppTre(treStruktur, container, erRot = true) {
     const nøkler = Object.keys(treStruktur).sort();
     if (nøkler.length === 0 && erRot) { container.innerHTML = '<div class="empty anim">Fant ingen objekter med RDS-egenskaper.</div>'; return; }
