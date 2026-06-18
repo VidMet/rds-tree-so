@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Viewer & Editor v1.2.1</title>
+  <title>RDS Viewer & Editor v1.3</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -105,7 +105,7 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Viewer <span class="version">v1.2.1</span></h1>
+    <h1>RDS Viewer <span class="version">v1.3</span></h1>
     <p>Hierarkisk visning & Batch-editering</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
@@ -262,7 +262,6 @@ $('clearBtn').addEventListener('click', () => {
     setStatus('🗑️ Køen er tømt.', 'ok');
 });
 
-// KORRIGERT: Henter markeringen riktig fra sel.objectRuntimeIds
 $('queueBtn').addEventListener('click', async () => {
     const newNumber = $('newRunningNumber').value.trim();
     if (!newNumber) {
@@ -301,14 +300,22 @@ $('queueBtn').addEventListener('click', async () => {
             
             propsArr.forEach(obj => {
                 let globalId = "UKJENT_GUID";
+                const objRuntimeId = obj.id || obj.objectRuntimeId;
                 const flatProps = {}; 
                 
                 if (obj.properties) {
                     for (const pset of obj.properties) {
-                        const guidProp = (pset.properties || []).find(p => p.name === "GlobalId");
+                        // OPPDATERT: Leter nå primært etter "GUID (IFC)"
+                        const guidProp = (pset.properties || []).find(p => 
+                            p.name === "GUID (IFC)" || 
+                            p.name === "GlobalId" || 
+                            p.name === "GUID"
+                        );
+                        
                         if (guidProp && guidProp.value) {
                             globalId = guidProp.value;
                         }
+                        
                         (pset.properties || []).forEach(p => {
                             if (p.value !== undefined && p.value !== null && String(p.value).trim() !== "") {
                                 flatProps[p.name.toLowerCase()] = String(p.value).trim();
@@ -317,12 +324,14 @@ $('queueBtn').addEventListener('click', async () => {
                     }
                 }
 
-                EXPORT_QUEUE = EXPORT_QUEUE.filter(item => item.GUID !== globalId);
+                // OPPDATERT: Bruker modell-ID og runtime-ID for å fjerne duplikater, IKKE GUID. 
+                // Dette forhindrer at objekter med "UKJENT_GUID" overskriver hverandre.
+                EXPORT_QUEUE = EXPORT_QUEUE.filter(item => !(item.modelId === mid && item.runtimeId === objRuntimeId));
 
                 const updateItem = {
                     GUID: globalId,
                     modelId: mid,
-                    runtimeId: obj.id || obj.objectRuntimeId,
+                    runtimeId: objRuntimeId,
                     egenskaperSomSkalEndres: {}
                 };
 
