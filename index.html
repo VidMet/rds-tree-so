@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Viewer & Editor v1.4</title>
+  <title>RDS Viewer & Editor v1.5</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -105,7 +105,7 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Viewer <span class="version">v1.4</span></h1>
+    <h1>RDS Viewer <span class="version">v1.5</span></h1>
     <p>Hierarkisk visning & Batch-editering</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
@@ -159,9 +159,6 @@ function slaaSammen(props, nøkkel1, nøkkel2) {
     return "Udefinert";
 }
 
-// -----------------------------------------------------
-// 1. BYGG RDS-TRE
-// -----------------------------------------------------
 $('scanBtn').addEventListener('click', async () => {
   if (!API) return;
   $('scanBtn').disabled = true;
@@ -240,9 +237,6 @@ $('scanBtn').addEventListener('click', async () => {
   }
 });
 
-// -----------------------------------------------------
-// 2. KØ OG EKSPORT-LOGIKK
-// -----------------------------------------------------
 const EGENSKAPER_SOM_SKAL_OPPDATERES = [
     "01. rds-tag", 
     "15. hhhnnnnn", 
@@ -262,6 +256,7 @@ $('clearBtn').addEventListener('click', () => {
     setStatus('🗑️ Køen er tømt.', 'ok');
 });
 
+// AGGRESSIV GUID-JAKT
 $('queueBtn').addEventListener('click', async () => {
     const newNumber = $('newRunningNumber').value.trim();
     if (!newNumber) {
@@ -271,16 +266,11 @@ $('queueBtn').addEventListener('click', async () => {
 
     try {
         setStatus('⏳ Henter markering og forbereder data...');
-        
         const selection = await API.viewer.getSelection();
         
         let totalSelected = 0;
         if (selection && selection.length > 0) {
-            selection.forEach(sel => {
-                if (sel.objectRuntimeIds) {
-                    totalSelected += sel.objectRuntimeIds.length;
-                }
-            });
+            selection.forEach(sel => { if (sel.objectRuntimeIds) totalSelected += sel.objectRuntimeIds.length; });
         }
 
         if (totalSelected === 0) {
@@ -293,7 +283,6 @@ $('queueBtn').addEventListener('click', async () => {
         for (const sel of selection) {
             const mid = sel.modelId;
             const runtimeIds = sel.objectRuntimeIds; 
-            
             if (!runtimeIds || runtimeIds.length === 0) continue;
             
             const propsArr = await API.viewer.getObjectProperties(mid, runtimeIds);
@@ -303,29 +292,40 @@ $('queueBtn').addEventListener('click', async () => {
                 const objRuntimeId = obj.id || obj.objectRuntimeId;
                 const flatProps = {}; 
                 
+                // 1. Sjekk roten av objektet. I mange IFC-filer legges GUID her av Connect.
+                if (obj.externalId) globalId = obj.externalId;
+                else if (obj.globalId) globalId = obj.globalId;
+                else if (obj.ifcGuid) globalId = obj.ifcGuid;
+                
+                // 2. Finkjem property-settene
                 if (obj.properties) {
                     for (const pset of obj.properties) {
                         (pset.properties || []).forEach(p => {
                             if (p.name) {
-                                // Gjør navnet til små bokstaver og fjerner mellomrom for å sikre treff
                                 const nameLower = p.name.trim().toLowerCase();
                                 const valStr = p.value !== undefined && p.value !== null ? String(p.value).trim() : "";
                                 
-                                // Fanger opp alle varianter av GUID
-                                if (nameLower === "guid (ifc)" || nameLower === "globalid" || nameLower === "guid") {
-                                    // Overskriver kun hvis vi ikke har funnet en gyldig en enda, 
-                                    // eller hvis vi finner den som spesifikt heter "guid (ifc)"
-                                    if (globalId === "UKJENT_GUID" || nameLower === "guid (ifc)") {
+                                if (valStr !== "") flatProps[nameLower] = valStr;
+
+                                // Det aggressive søket: Finner alt med "guid" eller "globalid"
+                                if (nameLower.includes("guid") || nameLower.includes("globalid")) {
+                                    // Hvis vi treffer innertier (IFC), overskriv alt
+                                    if (nameLower.includes("ifc") || nameLower === "globalid") {
+                                        globalId = valStr;
+                                    } 
+                                    // Hvis vi ikke har noen GUID enda, ta det vi finner (f.eks. GUID (MS))
+                                    else if (globalId === "UKJENT_GUID") {
                                         globalId = valStr;
                                     }
-                                }
-
-                                if (valStr !== "") {
-                                    flatProps[nameLower] = valStr;
                                 }
                             }
                         });
                     }
+                }
+
+                // FEILSØKING TIL CONSOLE: Hvis alt feiler, skriver den objektet til F12-konsollen
+                if (globalId === "UKJENT_GUID") {
+                    console.warn(`⚠️ Fant ikke GUID for objekt RuntimeID: ${objRuntimeId}. Her er all rådata for inspeksjon:`, obj);
                 }
 
                 EXPORT_QUEUE = EXPORT_QUEUE.filter(item => !(item.modelId === mid && item.runtimeId === objRuntimeId));
@@ -334,6 +334,7 @@ $('queueBtn').addEventListener('click', async () => {
                     GUID: globalId,
                     modelId: mid,
                     runtimeId: objRuntimeId,
+                    gammelRdsTag: flatProps["01. rds-tag"] || "", // BACKUP: Vi lagrer den gamle verdien her!
                     egenskaperSomSkalEndres: {}
                 };
 
@@ -362,12 +363,10 @@ $('queueBtn').addEventListener('click', async () => {
 
 $('exportBtn').addEventListener('click', () => {
     if (EXPORT_QUEUE.length === 0) return;
-
     try {
         const jsonString = JSON.stringify(EXPORT_QUEUE, null, 2);
         const blob = new Blob([jsonString], { type: "application/json" });
         const url = URL.createObjectURL(blob);
-        
         const a = document.createElement("a");
         a.href = url;
         a.download = `rds_batch_update_flere.json`;
@@ -375,26 +374,20 @@ $('exportBtn').addEventListener('click', () => {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-
         setStatus(`🎉 Eksporterte JSON-fil med ${EXPORT_QUEUE.length} endringer.`, 'ok');
     } catch (error) {
         setStatus(`❌ Feil under eksport: ${error.message}`, 'error');
     }
 });
 
-// -----------------------------------------------------
-// 3. UI OG TRESTRUKTUR
-// -----------------------------------------------------
 function tellObjekter(nodeMap) { let count = nodeMap.objekter.length; for (const key in nodeMap.barn) { count += tellObjekter(nodeMap.barn[key]); } return count; }
 function hentAlleIds(nodeMap) { let idMap = {}; nodeMap.objekter.forEach(obj => { if (!idMap[obj.modelId]) idMap[obj.modelId] = []; idMap[obj.modelId].push(Number(obj.runtimeId)); }); for (const key in nodeMap.barn) { const barnIds = hentAlleIds(nodeMap.barn[key]); for (const mid in barnIds) { if (!idMap[mid]) idMap[mid] = []; idMap[mid].push(...barnIds[mid]); } } return idMap; }
 function formaterForMarkering(idMap) { return Object.keys(idMap).map(mid => ({ modelId: mid, objectRuntimeIds: idMap[mid] })); }
-
 function tegnOppTre(treStruktur, container, erRot = true) {
     const nøkler = Object.keys(treStruktur).sort();
     if (nøkler.length === 0 && erRot) { container.innerHTML = '<div class="empty anim">Fant ingen objekter med RDS-egenskaper.</div>'; return; }
     const wrapper = document.createElement('div');
     if (erRot) { wrapper.className = 'tree-container anim'; container.appendChild(wrapper); }
-
     nøkler.forEach(nøkkel => {
         const nodeData = treStruktur[nøkkel];
         const totaltAntall = tellObjekter(nodeData);
@@ -405,7 +398,6 @@ function tegnOppTre(treStruktur, container, erRot = true) {
         headerDiv.innerHTML = `<div class="tree-arrow">▶</div><div class="tree-title" title="${safeNøkkel}">${safeNøkkel}</div><div class="tree-count">${totaltAntall} obj</div>`;
         const childrenDiv = document.createElement('div'); childrenDiv.className = 'tree-children';
         const alleIdsForMarkering = formaterForMarkering(hentAlleIds(nodeData));
-
         headerDiv.onclick = async (e) => {
             e.stopPropagation();
             const isOpen = childrenDiv.style.display === 'block'; childrenDiv.style.display = isOpen ? 'none' : 'block';
