@@ -270,8 +270,17 @@ $('queueBtn').addEventListener('click', async () => {
         
         const selection = await API.viewer.getSelection();
         
-        // OPPDATERT: Sikker sjekk på at noe faktisk er markert
-        if (!selection || selection.length === 0 || !selection[0] || !selection[0].modelObjectIds || selection[0].modelObjectIds.length === 0) {
+        // OPPDATERT LOGIKK: Teller opp antall valgte objekter på tvers av alle innlastede modeller
+        let totalSelected = 0;
+        if (selection && selection.length > 0) {
+            selection.forEach(sel => {
+                if (sel.objectRuntimeIds) {
+                    totalSelected += sel.objectRuntimeIds.length;
+                }
+            });
+        }
+
+        if (totalSelected === 0) {
             setStatus('⚠️ Ingen objekter er markert i 3D-modellen.', 'warn');
             return;
         }
@@ -280,7 +289,10 @@ $('queueBtn').addEventListener('click', async () => {
 
         for (const sel of selection) {
             const mid = sel.modelId;
-            const runtimeIds = sel.modelObjectIds.map(obj => obj.objectRuntimeIds).flat();
+            // OPPDATERT: Henter ID-ene fra riktig variabel i datastrukturen
+            const runtimeIds = sel.objectRuntimeIds; 
+            
+            if (!runtimeIds || runtimeIds.length === 0) continue;
             
             const propsArr = await API.viewer.getObjectProperties(mid, runtimeIds);
             
@@ -302,7 +314,6 @@ $('queueBtn').addEventListener('click', async () => {
                     }
                 }
 
-                // Fjern objektet fra køen hvis det allerede ligger der (forhindrer duplikater hvis man markerer på nytt)
                 EXPORT_QUEUE = EXPORT_QUEUE.filter(item => item.GUID !== globalId);
 
                 const updateItem = {
