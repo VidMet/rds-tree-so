@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Viewer v1.01</title>
+  <title>RDS Viewer & Editor v1.1</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -55,6 +55,10 @@
     .btn:not(:disabled):active { transform: scale(.97); }
     
     .btn-primary { background: var(--blue); color: #ffffff; }
+    .btn-success { background: var(--green); color: #ffffff; }
+
+    #editPanel { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; flex-wrap: wrap; }
+    .input-field { font-family: var(--mono); font-size: 12px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; width: 180px; }
 
     #statusBar { font-family: var(--mono); font-size: 11px; padding: 6px 16px; background: var(--blue-dim); color: var(--blue); border-bottom: 1px solid var(--border); flex-shrink: 0; }
     #statusBar.ok    { background: var(--green-dim); color: var(--green); }
@@ -65,14 +69,10 @@
 
     .tree-container { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px 12px 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
     .tree-node { margin-left: 14px; position: relative; }
-    
     .tree-node::before { content: ""; position: absolute; top: 0; left: -8px; bottom: 0; border-left: 1px solid var(--border); }
     .tree-node:last-child::before { bottom: auto; height: 16px; }
     
-    .tree-header { 
-        display: flex; align-items: center; padding: 6px 8px; cursor: pointer; border-radius: 6px; 
-        transition: background 0.1s; margin-top: 2px; user-select: none;
-    }
+    .tree-header { display: flex; align-items: center; padding: 6px 8px; cursor: pointer; border-radius: 6px; transition: background 0.1s; margin-top: 2px; user-select: none; }
     .tree-header:hover { background: var(--bg); }
     
     .tree-arrow { font-size: 10px; color: var(--muted); width: 16px; text-align: center; margin-right: 4px; }
@@ -81,15 +81,8 @@
     
     .tree-children { display: none; }
     
-    .tree-object { 
-        display: flex; align-items: center; margin-left: 14px; padding: 6px 8px 6px 28px; 
-        font-size: 12px; color: var(--ink); cursor: pointer; transition: background 0.1s;
-        border-radius: 4px; position: relative; margin-top: 2px;
-    }
-    .tree-object::before { 
-        content: ""; position: absolute; top: 0; left: -8px; bottom: auto; height: 16px; 
-        border-left: 1px solid var(--border); border-bottom: 1px solid var(--border); width: 12px; 
-    }
+    .tree-object { display: flex; align-items: center; margin-left: 14px; padding: 6px 8px 6px 28px; font-size: 12px; color: var(--ink); cursor: pointer; transition: background 0.1s; border-radius: 4px; position: relative; margin-top: 2px; }
+    .tree-object::before { content: ""; position: absolute; top: 0; left: -8px; bottom: auto; height: 16px; border-left: 1px solid var(--border); border-bottom: 1px solid var(--border); width: 12px; }
     .tree-object:hover { background: var(--blue-dim); color: var(--blue); }
     .tree-object::after { content: "🧊"; position: absolute; left: 10px; font-size: 10px; }
 
@@ -111,12 +104,17 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Viewer <span class="version">v1.01</span></h1>
-    <p>Hierarkisk visning av RDS-strukturen</p>
+    <h1>RDS Viewer <span class="version">v1.1</span></h1>
+    <p>Hierarkisk visning & Editering av RDS</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   <button class="btn btn-primary" id="scanBtn" disabled>▶ Bygg RDS-tre</button>
 </header>
+
+<div id="editPanel">
+  <input type="text" id="newRunningNumber" class="input-field" placeholder="Nytt løpenummer (eks: 04)">
+  <button class="btn btn-success" id="exportBtn" disabled>💾 Oppdater markerte & Eksporter</button>
+</div>
 
 <div id="statusBar">Kobler til Trimble Connect...</div>
 
@@ -130,20 +128,16 @@ let API = null;
 const $ = id => document.getElementById(id);
 const setStatus = (m, c='') => { $('statusBar').textContent = m; $('statusBar').className = c; };
 
-// NY: Sørger for at spesialtegn som < og > tegnes som ren tekst i stedet for HTML-tagger
 function escapeHTML(str) {
   if (!str) return '';
-  return str.replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#039;');
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
 
 async function connect(){
   try {
     API = await window.TrimbleConnectWorkspace.connect(window.parent);
     $('scanBtn').disabled = false;
+    $('exportBtn').disabled = false;
     $('modelBadge').textContent = 'Tilkoblet';
     setStatus('✅ Klar til å skanne.', 'ok');
   } catch(e) { 
@@ -154,13 +148,13 @@ async function connect(){
 function slaaSammen(props, nøkkel1, nøkkel2) {
     const val1 = props[nøkkel1] || props[nøkkel1.toLowerCase()];
     const val2 = props[nøkkel2] || props[nøkkel2.toLowerCase()];
-    
     if (val1 && val2) return `${val1} - ${val2}`;
     if (val1) return val1;
     if (val2) return val2;
     return "Udefinert";
 }
 
+// Hovedfunksjon for bygging av treet
 $('scanBtn').addEventListener('click', async () => {
   if (!API) return;
   
@@ -169,7 +163,6 @@ $('scanBtn').addEventListener('click', async () => {
   
   try {
     setStatus('⏳ Henter modeller fra vieweren...');
-    
     const models = await API.viewer.getObjects();
     
     if (!models || models.length === 0) {
@@ -189,12 +182,10 @@ $('scanBtn').addEventListener('click', async () => {
       for (let i = 0; i < objectIds.length; i += CHUNK) {
         const chunk = objectIds.slice(i, i + CHUNK);
         setStatus(`⏳ Analyserer egenskaper og bygger tre... (${totalObjects + i} objekter skannet)`);
-        
         const propsArr = await API.viewer.getObjectProperties(mid, chunk);
         
         propsArr.forEach(obj => {
           const flatProps = {};
-          
           (obj.properties || []).forEach(pset => 
             (pset.properties || []).forEach(p => {
                if (p.value !== undefined && p.value !== null && String(p.value).trim() !== "") {
@@ -223,18 +214,10 @@ $('scanBtn').addEventListener('click', async () => {
           let gjeldendeNivå = rdsTree;
           
           sti.forEach((nodensNavn, indeks) => {
-              if (!gjeldendeNivå[nodensNavn]) {
-                  gjeldendeNivå[nodensNavn] = { barn: {}, objekter: [] };
-              }
-              
+              if (!gjeldendeNivå[nodensNavn]) { gjeldendeNivå[nodensNavn] = { barn: {}, objekter: [] }; }
               if (indeks === sti.length - 1) {
-                  gjeldendeNivå[nodensNavn].objekter.push({
-                      navn: objektNavn,
-                      modelId: mid,
-                      runtimeId: obj.id || obj.objectRuntimeId
-                  });
+                  gjeldendeNivå[nodensNavn].objekter.push({ navn: objektNavn, modelId: mid, runtimeId: obj.id || obj.objectRuntimeId });
               }
-              
               gjeldendeNivå = gjeldendeNivå[nodensNavn].barn;
           });
         });
@@ -243,7 +226,6 @@ $('scanBtn').addEventListener('click', async () => {
     }
 
     tegnOppTre(rdsTree, $('mainContent'));
-    
     setStatus(`✅ Tre bygget. Analyserte ${totalObjects} objekter.`, 'ok');
     $('scanBtn').disabled = false;
 
@@ -253,23 +235,108 @@ $('scanBtn').addEventListener('click', async () => {
   }
 });
 
-function tellObjekter(nodeMap) {
-    let count = 0;
-    count += nodeMap.objekter.length;
-    for (const key in nodeMap.barn) {
-        count += tellObjekter(nodeMap.barn[key]);
+// Funksjon for redigering og eksport
+const EGENSKAPER_SOM_SKAL_OPPDATERES = [
+    "01. rds-tag", 
+    "15. hhhnnnnn", 
+    "16. hhhnnnnn navn"
+];
+
+$('exportBtn').addEventListener('click', async () => {
+    const newNumber = $('newRunningNumber').value.trim();
+    if (!newNumber) {
+        alert("Du må skrive inn et nytt løpenummer først.");
+        return;
     }
-    return count;
-}
+
+    try {
+        setStatus('⏳ Henter markering og forbereder eksport...');
+        
+        const selection = await API.viewer.getSelection();
+        if (!selection || selection.length === 0 || selection[0].modelObjectIds.length === 0) {
+            setStatus('⚠️ Ingen objekter er markert i 3D-modellen.', 'warn');
+            return;
+        }
+
+        const exportData = [];
+        let totalProcessed = 0;
+
+        for (const sel of selection) {
+            const mid = sel.modelId;
+            const runtimeIds = sel.modelObjectIds.map(obj => obj.objectRuntimeIds).flat();
+            
+            const propsArr = await API.viewer.getObjectProperties(mid, runtimeIds);
+            
+            propsArr.forEach(obj => {
+                let globalId = "UKJENT_GUID";
+                const flatProps = {}; 
+                
+                if (obj.properties) {
+                    for (const pset of obj.properties) {
+                        const guidProp = (pset.properties || []).find(p => p.name === "GlobalId");
+                        if (guidProp && guidProp.value) {
+                            globalId = guidProp.value;
+                        }
+                        (pset.properties || []).forEach(p => {
+                            if (p.value !== undefined && p.value !== null && String(p.value).trim() !== "") {
+                                flatProps[p.name.toLowerCase()] = String(p.value).trim();
+                            }
+                        });
+                    }
+                }
+
+                const updateItem = {
+                    GUID: globalId,
+                    modelId: mid,
+                    runtimeId: obj.id || obj.objectRuntimeId,
+                    egenskaperSomSkalEndres: {}
+                };
+
+                EGENSKAPER_SOM_SKAL_OPPDATERES.forEach(propName => {
+                    const gammelVerdi = flatProps[propName];
+                    if (gammelVerdi) {
+                        // Regex: Erstatter de 1 til 3 siste sifrene med det nye løpenummeret
+                        const nyVerdi = gammelVerdi.replace(/\d{1,3}$/, newNumber);
+                        // Beholder opprinnelig egenskap som nøkkel (Trimble Connect gir dem ofte ut med store bokstaver hvis de opprinnelig er slik, men vi mapper via lowerCase for å finne dem)
+                        updateItem.egenskaperSomSkalEndres[propName] = nyVerdi;
+                    }
+                });
+
+                if (Object.keys(updateItem.egenskaperSomSkalEndres).length > 0) {
+                    exportData.push(updateItem);
+                    totalProcessed++;
+                }
+            });
+        }
+
+        const jsonString = JSON.stringify(exportData, null, 2);
+        const blob = new Blob([jsonString], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `rds_batch_update_lopnr_${newNumber}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        setStatus(`✅ Eksporterte endringslogg for ${totalProcessed} objekter.`, 'ok');
+
+    } catch (error) {
+        setStatus(`❌ Feil under eksport: ${error.message}`, 'error');
+    }
+});
+
+// Hjelpefunksjoner for trestruktur
+function tellObjekter(nodeMap) { let count = nodeMap.objekter.length; for (const key in nodeMap.barn) { count += tellObjekter(nodeMap.barn[key]); } return count; }
 
 function hentAlleIds(nodeMap) {
     let idMap = {}; 
-    
     nodeMap.objekter.forEach(obj => {
         if (!idMap[obj.modelId]) idMap[obj.modelId] = [];
         idMap[obj.modelId].push(Number(obj.runtimeId));
     });
-
     for (const key in nodeMap.barn) {
         const barnIds = hentAlleIds(nodeMap.barn[key]);
         for (const mid in barnIds) {
@@ -280,30 +347,19 @@ function hentAlleIds(nodeMap) {
     return idMap;
 }
 
-function formaterForMarkering(idMap) {
-    return Object.keys(idMap).map(mid => ({
-        modelId: mid,
-        objectRuntimeIds: idMap[mid]
-    }));
-}
+function formaterForMarkering(idMap) { return Object.keys(idMap).map(mid => ({ modelId: mid, objectRuntimeIds: idMap[mid] })); }
 
 function tegnOppTre(treStruktur, container, erRot = true) {
     const nøkler = Object.keys(treStruktur).sort();
-    
     if (nøkler.length === 0 && erRot) {
         container.innerHTML = '<div class="empty anim">Fant ingen objekter med RDS-egenskaper.</div>';
         return;
     }
-
     const wrapper = document.createElement('div');
-    if (erRot) {
-        wrapper.className = 'tree-container anim';
-        container.appendChild(wrapper);
-    }
+    if (erRot) { wrapper.className = 'tree-container anim'; container.appendChild(wrapper); }
 
     nøkler.forEach(nøkkel => {
         const nodeData = treStruktur[nøkkel];
-        
         const totaltAntall = tellObjekter(nodeData);
         if (totaltAntall === 0) return;
 
@@ -312,10 +368,7 @@ function tegnOppTre(treStruktur, container, erRot = true) {
         
         const headerDiv = document.createElement('div');
         headerDiv.className = 'tree-header';
-        
-        // OPPDATERT: Kjører nøkkelen gjennom escapeHTML() for å unngå at nettleseren tolker <...> som HTML-koder
         const safeNøkkel = escapeHTML(nøkkel);
-        
         headerDiv.innerHTML = `
             <div class="tree-arrow">▶</div>
             <div class="tree-title" title="${safeNøkkel}">${safeNøkkel}</div>
@@ -324,7 +377,6 @@ function tegnOppTre(treStruktur, container, erRot = true) {
         
         const childrenDiv = document.createElement('div');
         childrenDiv.className = 'tree-children';
-
         const alleIdsForMarkering = formaterForMarkering(hentAlleIds(nodeData));
 
         headerDiv.onclick = async (e) => {
@@ -332,39 +384,24 @@ function tegnOppTre(treStruktur, container, erRot = true) {
             const isOpen = childrenDiv.style.display === 'block';
             childrenDiv.style.display = isOpen ? 'none' : 'block';
             headerDiv.querySelector('.tree-arrow').innerText = isOpen ? '▼' : '▶';
-            
-            try {
-                if (API.viewer.setSelection && alleIdsForMarkering.length > 0) {
-                    await API.viewer.setSelection({ modelObjectIds: alleIdsForMarkering }, 'set');
-                }
-            } catch(err) {}
+            try { if (API.viewer.setSelection && alleIdsForMarkering.length > 0) { await API.viewer.setSelection({ modelObjectIds: alleIdsForMarkering }, 'set'); } } catch(err) {}
         };
         
-        if (Object.keys(nodeData.barn).length > 0) {
-            tegnOppTre(nodeData.barn, childrenDiv, false);
-        }
+        if (Object.keys(nodeData.barn).length > 0) { tegnOppTre(nodeData.barn, childrenDiv, false); }
         
         if (nodeData.objekter.length > 0) {
             nodeData.objekter.sort((a, b) => a.navn.localeCompare(b.navn)).forEach(obj => {
                 const objDiv = document.createElement('div');
                 objDiv.className = 'tree-object';
-                
-                // Bruker safeNøkkel-logikk indirekte her ved å bruke .innerText (som er trygt mot HTML-injeksjon)
                 objDiv.innerText = obj.navn;
                 objDiv.title = obj.navn;
-                
                 objDiv.onclick = async (e) => {
                     e.stopPropagation();
-                    try {
-                        if (API.viewer.setSelection) {
-                            await API.viewer.setSelection({ modelObjectIds: [{ modelId: obj.modelId, objectRuntimeIds: [Number(obj.runtimeId)] }] }, 'set');
-                        }
-                    } catch(err) {}
+                    try { if (API.viewer.setSelection) { await API.viewer.setSelection({ modelObjectIds: [{ modelId: obj.modelId, objectRuntimeIds: [Number(obj.runtimeId)] }] }, 'set'); } } catch(err) {}
                 };
                 childrenDiv.appendChild(objDiv);
             });
         }
-
         nodeDiv.appendChild(headerDiv);
         nodeDiv.appendChild(childrenDiv);
         (erRot ? wrapper : container).appendChild(nodeDiv);
