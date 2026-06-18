@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Viewer & Editor v1.1</title>
+  <title>RDS Viewer & Editor v1.2</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -49,16 +49,17 @@
 
     .badge { font-family: var(--mono); font-size: 10px; padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
 
-    .btn { font-family: var(--sans); font-size: 12px; font-weight: 700; padding: 7px 14px; border-radius: 6px; border: none; cursor: pointer; transition: opacity .15s, transform .1s; white-space: nowrap; }
+    .btn { font-family: var(--sans); font-size: 12px; font-weight: 700; padding: 7px 12px; border-radius: 6px; border: none; cursor: pointer; transition: opacity .15s, transform .1s; white-space: nowrap; }
     .btn:disabled { opacity: .4; cursor: not-allowed; }
     .btn:not(:disabled):hover { opacity: .85; }
     .btn:not(:disabled):active { transform: scale(.97); }
     
     .btn-primary { background: var(--blue); color: #ffffff; }
     .btn-success { background: var(--green); color: #ffffff; }
+    .btn-danger { background: var(--surface2); color: var(--red); border: 1px solid var(--border); }
 
-    #editPanel { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; flex-wrap: wrap; }
-    .input-field { font-family: var(--mono); font-size: 12px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; width: 180px; }
+    #editPanel { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
+    .input-field { font-family: var(--mono); font-size: 12px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; width: 140px; }
 
     #statusBar { font-family: var(--mono); font-size: 11px; padding: 6px 16px; background: var(--blue-dim); color: var(--blue); border-bottom: 1px solid var(--border); flex-shrink: 0; }
     #statusBar.ok    { background: var(--green-dim); color: var(--green); }
@@ -104,16 +105,18 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Viewer <span class="version">v1.1</span></h1>
-    <p>Hierarkisk visning & Editering av RDS</p>
+    <h1>RDS Viewer <span class="version">v1.2</span></h1>
+    <p>Hierarkisk visning & Batch-editering</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   <button class="btn btn-primary" id="scanBtn" disabled>▶ Bygg RDS-tre</button>
 </header>
 
 <div id="editPanel">
-  <input type="text" id="newRunningNumber" class="input-field" placeholder="Nytt løpenummer (eks: 04)">
-  <button class="btn btn-success" id="exportBtn" disabled>💾 Oppdater markerte & Eksporter</button>
+  <input type="text" id="newRunningNumber" class="input-field" placeholder="Nytt løp.nr (eks: 04)">
+  <button class="btn btn-primary" id="queueBtn" disabled>➕ Legg til i kø</button>
+  <div style="flex-grow: 1;"></div> <button class="btn btn-danger" id="clearBtn" disabled>Tøm</button>
+  <button class="btn btn-success" id="exportBtn" disabled>💾 Eksporter (0)</button>
 </div>
 
 <div id="statusBar">Kobler til Trimble Connect...</div>
@@ -124,6 +127,7 @@
 
 <script>
 let API = null;
+let EXPORT_QUEUE = []; // Her lagrer vi alle endringene
 
 const $ = id => document.getElementById(id);
 const setStatus = (m, c='') => { $('statusBar').textContent = m; $('statusBar').className = c; };
@@ -137,7 +141,7 @@ async function connect(){
   try {
     API = await window.TrimbleConnectWorkspace.connect(window.parent);
     $('scanBtn').disabled = false;
-    $('exportBtn').disabled = false;
+    $('queueBtn').disabled = false;
     $('modelBadge').textContent = 'Tilkoblet';
     setStatus('✅ Klar til å skanne.', 'ok');
   } catch(e) { 
@@ -157,14 +161,12 @@ function slaaSammen(props, nøkkel1, nøkkel2) {
 // Hovedfunksjon for bygging av treet
 $('scanBtn').addEventListener('click', async () => {
   if (!API) return;
-  
   $('scanBtn').disabled = true;
   $('mainContent').innerHTML = '';
   
   try {
     setStatus('⏳ Henter modeller fra vieweren...');
     const models = await API.viewer.getObjects();
-    
     if (!models || models.length === 0) {
       setStatus('⚠️ Fant ingen objekter i vieweren.', 'warn');
       $('scanBtn').disabled = false;
@@ -235,14 +237,28 @@ $('scanBtn').addEventListener('click', async () => {
   }
 });
 
-// Funksjon for redigering og eksport
+
+// LOGIKK FOR Å LEGGE TIL I KØ
 const EGENSKAPER_SOM_SKAL_OPPDATERES = [
     "01. rds-tag", 
     "15. hhhnnnnn", 
     "16. hhhnnnnn navn"
 ];
 
-$('exportBtn').addEventListener('click', async () => {
+function oppdaterUI() {
+    const antall = EXPORT_QUEUE.length;
+    $('exportBtn').innerText = `💾 Eksporter (${antall})`;
+    $('exportBtn').disabled = antall === 0;
+    $('clearBtn').disabled = antall === 0;
+}
+
+$('clearBtn').addEventListener('click', () => {
+    EXPORT_QUEUE = [];
+    oppdaterUI();
+    setStatus('🗑️ Køen er tømt.', 'ok');
+});
+
+$('queueBtn').addEventListener('click', async () => {
     const newNumber = $('newRunningNumber').value.trim();
     if (!newNumber) {
         alert("Du må skrive inn et nytt løpenummer først.");
@@ -250,16 +266,17 @@ $('exportBtn').addEventListener('click', async () => {
     }
 
     try {
-        setStatus('⏳ Henter markering og forbereder eksport...');
+        setStatus('⏳ Henter markering og forbereder data...');
         
         const selection = await API.viewer.getSelection();
-        if (!selection || selection.length === 0 || selection[0].modelObjectIds.length === 0) {
+        
+        // OPPDATERT: Sikker sjekk på at noe faktisk er markert
+        if (!selection || selection.length === 0 || !selection[0] || !selection[0].modelObjectIds || selection[0].modelObjectIds.length === 0) {
             setStatus('⚠️ Ingen objekter er markert i 3D-modellen.', 'warn');
             return;
         }
 
-        const exportData = [];
-        let totalProcessed = 0;
+        let addedCount = 0;
 
         for (const sel of selection) {
             const mid = sel.modelId;
@@ -285,6 +302,9 @@ $('exportBtn').addEventListener('click', async () => {
                     }
                 }
 
+                // Fjern objektet fra køen hvis det allerede ligger der (forhindrer duplikater hvis man markerer på nytt)
+                EXPORT_QUEUE = EXPORT_QUEUE.filter(item => item.GUID !== globalId);
+
                 const updateItem = {
                     GUID: globalId,
                     modelId: mid,
@@ -295,66 +315,63 @@ $('exportBtn').addEventListener('click', async () => {
                 EGENSKAPER_SOM_SKAL_OPPDATERES.forEach(propName => {
                     const gammelVerdi = flatProps[propName];
                     if (gammelVerdi) {
-                        // Regex: Erstatter de 1 til 3 siste sifrene med det nye løpenummeret
                         const nyVerdi = gammelVerdi.replace(/\d{1,3}$/, newNumber);
-                        // Beholder opprinnelig egenskap som nøkkel (Trimble Connect gir dem ofte ut med store bokstaver hvis de opprinnelig er slik, men vi mapper via lowerCase for å finne dem)
                         updateItem.egenskaperSomSkalEndres[propName] = nyVerdi;
                     }
                 });
 
                 if (Object.keys(updateItem.egenskaperSomSkalEndres).length > 0) {
-                    exportData.push(updateItem);
-                    totalProcessed++;
+                    EXPORT_QUEUE.push(updateItem);
+                    addedCount++;
                 }
             });
         }
 
-        const jsonString = JSON.stringify(exportData, null, 2);
+        oppdaterUI();
+        setStatus(`✅ La til ${addedCount} objekter i køen. Totalt: ${EXPORT_QUEUE.length}`, 'ok');
+
+    } catch (error) {
+        setStatus(`❌ Feil ved innhenting: ${error.message}`, 'error');
+    }
+});
+
+
+// LOGIKK FOR EKSPORT AV KØEN
+$('exportBtn').addEventListener('click', () => {
+    if (EXPORT_QUEUE.length === 0) return;
+
+    try {
+        const jsonString = JSON.stringify(EXPORT_QUEUE, null, 2);
         const blob = new Blob([jsonString], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         
         const a = document.createElement("a");
         a.href = url;
-        a.download = `rds_batch_update_lopnr_${newNumber}.json`;
+        a.download = `rds_batch_update_flere.json`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
 
-        setStatus(`✅ Eksporterte endringslogg for ${totalProcessed} objekter.`, 'ok');
+        setStatus(`🎉 Eksporterte JSON-fil med ${EXPORT_QUEUE.length} endringer.`, 'ok');
+        
+        // Frivillig: Tøm køen automatisk etter eksport?
+        // EXPORT_QUEUE = [];
+        // oppdaterUI();
 
     } catch (error) {
         setStatus(`❌ Feil under eksport: ${error.message}`, 'error');
     }
 });
 
+
 // Hjelpefunksjoner for trestruktur
 function tellObjekter(nodeMap) { let count = nodeMap.objekter.length; for (const key in nodeMap.barn) { count += tellObjekter(nodeMap.barn[key]); } return count; }
-
-function hentAlleIds(nodeMap) {
-    let idMap = {}; 
-    nodeMap.objekter.forEach(obj => {
-        if (!idMap[obj.modelId]) idMap[obj.modelId] = [];
-        idMap[obj.modelId].push(Number(obj.runtimeId));
-    });
-    for (const key in nodeMap.barn) {
-        const barnIds = hentAlleIds(nodeMap.barn[key]);
-        for (const mid in barnIds) {
-            if (!idMap[mid]) idMap[mid] = [];
-            idMap[mid].push(...barnIds[mid]);
-        }
-    }
-    return idMap;
-}
-
+function hentAlleIds(nodeMap) { let idMap = {}; nodeMap.objekter.forEach(obj => { if (!idMap[obj.modelId]) idMap[obj.modelId] = []; idMap[obj.modelId].push(Number(obj.runtimeId)); }); for (const key in nodeMap.barn) { const barnIds = hentAlleIds(nodeMap.barn[key]); for (const mid in barnIds) { if (!idMap[mid]) idMap[mid] = []; idMap[mid].push(...barnIds[mid]); } } return idMap; }
 function formaterForMarkering(idMap) { return Object.keys(idMap).map(mid => ({ modelId: mid, objectRuntimeIds: idMap[mid] })); }
-
 function tegnOppTre(treStruktur, container, erRot = true) {
     const nøkler = Object.keys(treStruktur).sort();
-    if (nøkler.length === 0 && erRot) {
-        container.innerHTML = '<div class="empty anim">Fant ingen objekter med RDS-egenskaper.</div>';
-        return;
-    }
+    if (nøkler.length === 0 && erRot) { container.innerHTML = '<div class="empty anim">Fant ingen objekter med RDS-egenskaper.</div>'; return; }
     const wrapper = document.createElement('div');
     if (erRot) { wrapper.className = 'tree-container anim'; container.appendChild(wrapper); }
 
@@ -362,49 +379,28 @@ function tegnOppTre(treStruktur, container, erRot = true) {
         const nodeData = treStruktur[nøkkel];
         const totaltAntall = tellObjekter(nodeData);
         if (totaltAntall === 0) return;
-
-        const nodeDiv = document.createElement('div');
-        nodeDiv.className = erRot ? '' : 'tree-node';
-        
-        const headerDiv = document.createElement('div');
-        headerDiv.className = 'tree-header';
+        const nodeDiv = document.createElement('div'); nodeDiv.className = erRot ? '' : 'tree-node';
+        const headerDiv = document.createElement('div'); headerDiv.className = 'tree-header';
         const safeNøkkel = escapeHTML(nøkkel);
-        headerDiv.innerHTML = `
-            <div class="tree-arrow">▶</div>
-            <div class="tree-title" title="${safeNøkkel}">${safeNøkkel}</div>
-            <div class="tree-count">${totaltAntall} obj</div>
-        `;
-        
-        const childrenDiv = document.createElement('div');
-        childrenDiv.className = 'tree-children';
+        headerDiv.innerHTML = `<div class="tree-arrow">▶</div><div class="tree-title" title="${safeNøkkel}">${safeNøkkel}</div><div class="tree-count">${totaltAntall} obj</div>`;
+        const childrenDiv = document.createElement('div'); childrenDiv.className = 'tree-children';
         const alleIdsForMarkering = formaterForMarkering(hentAlleIds(nodeData));
 
         headerDiv.onclick = async (e) => {
             e.stopPropagation();
-            const isOpen = childrenDiv.style.display === 'block';
-            childrenDiv.style.display = isOpen ? 'none' : 'block';
+            const isOpen = childrenDiv.style.display === 'block'; childrenDiv.style.display = isOpen ? 'none' : 'block';
             headerDiv.querySelector('.tree-arrow').innerText = isOpen ? '▼' : '▶';
             try { if (API.viewer.setSelection && alleIdsForMarkering.length > 0) { await API.viewer.setSelection({ modelObjectIds: alleIdsForMarkering }, 'set'); } } catch(err) {}
         };
-        
         if (Object.keys(nodeData.barn).length > 0) { tegnOppTre(nodeData.barn, childrenDiv, false); }
-        
         if (nodeData.objekter.length > 0) {
             nodeData.objekter.sort((a, b) => a.navn.localeCompare(b.navn)).forEach(obj => {
-                const objDiv = document.createElement('div');
-                objDiv.className = 'tree-object';
-                objDiv.innerText = obj.navn;
-                objDiv.title = obj.navn;
-                objDiv.onclick = async (e) => {
-                    e.stopPropagation();
-                    try { if (API.viewer.setSelection) { await API.viewer.setSelection({ modelObjectIds: [{ modelId: obj.modelId, objectRuntimeIds: [Number(obj.runtimeId)] }] }, 'set'); } } catch(err) {}
-                };
+                const objDiv = document.createElement('div'); objDiv.className = 'tree-object'; objDiv.innerText = obj.navn; objDiv.title = obj.navn;
+                objDiv.onclick = async (e) => { e.stopPropagation(); try { if (API.viewer.setSelection) { await API.viewer.setSelection({ modelObjectIds: [{ modelId: obj.modelId, objectRuntimeIds: [Number(obj.runtimeId)] }] }, 'set'); } } catch(err) {} };
                 childrenDiv.appendChild(objDiv);
             });
         }
-        nodeDiv.appendChild(headerDiv);
-        nodeDiv.appendChild(childrenDiv);
-        (erRot ? wrapper : container).appendChild(nodeDiv);
+        nodeDiv.appendChild(headerDiv); nodeDiv.appendChild(childrenDiv); (erRot ? wrapper : container).appendChild(nodeDiv);
     });
 }
 
