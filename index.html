@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Viewer & Editor v1.3</title>
+  <title>RDS Viewer & Editor v1.4</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -105,7 +105,7 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Viewer <span class="version">v1.3</span></h1>
+    <h1>RDS Viewer <span class="version">v1.4</span></h1>
     <p>Hierarkisk visning & Batch-editering</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
@@ -305,27 +305,29 @@ $('queueBtn').addEventListener('click', async () => {
                 
                 if (obj.properties) {
                     for (const pset of obj.properties) {
-                        // OPPDATERT: Leter nå primært etter "GUID (IFC)"
-                        const guidProp = (pset.properties || []).find(p => 
-                            p.name === "GUID (IFC)" || 
-                            p.name === "GlobalId" || 
-                            p.name === "GUID"
-                        );
-                        
-                        if (guidProp && guidProp.value) {
-                            globalId = guidProp.value;
-                        }
-                        
                         (pset.properties || []).forEach(p => {
-                            if (p.value !== undefined && p.value !== null && String(p.value).trim() !== "") {
-                                flatProps[p.name.toLowerCase()] = String(p.value).trim();
+                            if (p.name) {
+                                // Gjør navnet til små bokstaver og fjerner mellomrom for å sikre treff
+                                const nameLower = p.name.trim().toLowerCase();
+                                const valStr = p.value !== undefined && p.value !== null ? String(p.value).trim() : "";
+                                
+                                // Fanger opp alle varianter av GUID
+                                if (nameLower === "guid (ifc)" || nameLower === "globalid" || nameLower === "guid") {
+                                    // Overskriver kun hvis vi ikke har funnet en gyldig en enda, 
+                                    // eller hvis vi finner den som spesifikt heter "guid (ifc)"
+                                    if (globalId === "UKJENT_GUID" || nameLower === "guid (ifc)") {
+                                        globalId = valStr;
+                                    }
+                                }
+
+                                if (valStr !== "") {
+                                    flatProps[nameLower] = valStr;
+                                }
                             }
                         });
                     }
                 }
 
-                // OPPDATERT: Bruker modell-ID og runtime-ID for å fjerne duplikater, IKKE GUID. 
-                // Dette forhindrer at objekter med "UKJENT_GUID" overskriver hverandre.
                 EXPORT_QUEUE = EXPORT_QUEUE.filter(item => !(item.modelId === mid && item.runtimeId === objRuntimeId));
 
                 const updateItem = {
