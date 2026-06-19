@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v1.9.2</title>
+  <title>RDS Universal Editor v1.9.3</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -118,20 +118,14 @@
     ::-webkit-scrollbar-track { background: var(--bg); }
     ::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: var(--ink); }
-
-    @keyframes fadeUp {
-      from { opacity:0; transform:translateY(6px); }
-      to   { opacity:1; transform:none; }
-    }
-    .anim { animation: fadeUp .3s ease both; }
   </style>
 </head>
 <body>
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v1.9.2</span></h1>
-    <p>Ekstrem skanning av underobjekter (Parts/Instances)</p>
+    <h1>RDS Universal Editor <span class="version">v1.9.3</span></h1>
+    <p>Dyp datastøvsuging (Fanger opp alle lag)</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   <button class="btn btn-primary" id="scanBtn" disabled>▶ Bygg RDS-tre</button>
@@ -266,204 +260,139 @@ $('scanBtn').addEventListener('click', async () => {
       
       let objectIds = [];
       const seenIds = new Set();
+      const visitedObjects = new Set();
       
-      // DEN EKSTREME GRAVEMASKINEN: Sjekker alle mulige gjemmesteder
-      function pakkUtObjekter(objList) {
-          if (!objList || !Array.isArray(objList)) return;
-          for (const o of objList) {
-              const rId = o.id || o.objectRuntimeId;
-              if (rId != null && !seenIds.has(rId)) {
-                  objectIds.push(rId);
-                  seenIds.add(rId);
+      // V1.9.3: UNIVERSELL REKURSIV DATASTØVSUGER
+      // Scanner absolutt alle kriker og kroker i JSON-strukturen etter ID-er
+      function støvsugData(obj) {
+          if (!obj || typeof obj !== 'object') return;
+          if (visitedObjects.has(obj)) return;
+          visitedObjects.add(obj);
+          
+          // Sjekk om denne noden har en ID uansett hvor den bor
+          const rId = obj.id || obj.objectRuntimeId || obj.runtimeId || obj.runtimeid;
+          if (rId != null && (typeof rId === 'number' || typeof rId === 'string')) {
+              const idNum = Number(rId);
+              if (!isNaN(idNum) && idNum > 0 && !seenIds.has(idNum)) {
+                  objectIds.push(idNum);
+                  seenIds.add(idNum);
               }
-              
-              if (o.children && o.children.length > 0) pakkUtObjekter(o.children);
-              if (o.parts && o.parts.length > 0) pakkUtObjekter(o.parts);
-              if (o.instances && o.instances.length > 0) pakkUtObjekter(o.instances);
+          }
+          
+          // Bla igjennom alle egenskaper dynamisk
+          for (const key in obj) {
+              if (obj.hasOwnProperty(key) && obj[key]) {
+                  const val = obj[key];
+                  if (Array.isArray(val)) {
+                      for (let i = 0; i < val.length; i++) {
+                          støvsugData(val[i]);
+                      }
+                  } else if (typeof val === 'object') {
+                      støvsugData(val);
+                  }
+              }
           }
       }
-      pakkUtObjekter(model.objects || []);
+      
+      // Kjører støvsugeren på hele modellen inkludert rot-egenskapene
+      støvsugData(model);
       
       for (let i = 0; i < objectIds.length; i += CHUNK) {
         const chunk = objectIds.slice(i, i + CHUNK);
         setStatus(`⏳ Analyserer egenskaper og bygger tre... (${totalObjects + i} objekter skannet)`);
-        const propsArr = await API.viewer.getObjectProperties(mid, chunk);
         
-        propsArr.forEach(obj => {
-          let globalId = "UKJENT_GUID";
-          if (obj.externalId) globalId = obj.externalId;
-          else if (obj.globalId) globalId = obj.globalId;
-          else if (obj.ifcGuid) globalId = obj.ifcGuid;
+        try {
+            const propsArr = await API.viewer.getObjectProperties(mid, chunk);
+            
+            propsArr.forEach(obj => {
+              let globalId = "UKJENT_GUID";
+              if (obj.externalId) globalId = obj.externalId;
+              else if (obj.globalId) globalId = obj.globalId;
+              else if (obj.ifcGuid) globalId = obj.ifcGuid;
 
-          const flatProps = {};
-          const groupedProps = {}; 
+              const flatProps = {};
+              const groupedProps = {}; 
 
-          (obj.properties || []).forEach(pset => {
-             if (!pset.name) return;
-             const psetName = pset.name.trim();
-             const psetNameLower = psetName.toLowerCase();
-             const isSystem = psetNameLower.startsWith('ifc') || SYSTEM_PSETS.includes(psetNameLower);
+              (obj.properties || []).forEach(pset => {
+                 if (!pset.name) return;
+                 const psetName = pset.name.trim();
+                 const psetNameLower = psetName.toLowerCase();
+                 const isSystem = psetNameLower.startsWith('ifc') || SYSTEM_PSETS.includes(psetNameLower);
 
-             (pset.properties || []).forEach(p => {
-               if (p.name) {
-                   const nameLower = p.name.trim().toLowerCase();
-                   const valStr = p.value !== undefined && p.value !== null ? String(p.value).trim() : "";
-                   
-                   if (valStr !== "") {
-                       flatProps[nameLower] = valStr;
-                       if (!isSystem) {
-                           if (!groupedProps[psetName]) groupedProps[psetName] = {};
-                           groupedProps[psetName][p.name.trim()] = valStr;
+                 (pset.properties || []).forEach(p => {
+                   if (p.name) {
+                       const nameLower = p.name.trim().toLowerCase();
+                       const valStr = p.value !== undefined && p.value !== null ? String(p.value).trim() : "";
+                       
+                       if (valStr !== "") {
+                           flatProps[nameLower] = valStr;
+                           if (!isSystem) {
+                               if (!groupedProps[psetName]) groupedProps[psetName] = {};
+                               groupedProps[psetName][p.name.trim()] = valStr;
+                           }
+                       }
+                       
+                       if (nameLower.includes("guid") || nameLower.includes("globalid") || nameLower === "objid") {
+                           if (nameLower.includes("ifc") || nameLower === "globalid" || nameLower === "objid") {
+                               globalId = valStr;
+                           } else if (globalId === "UKJENT_GUID") {
+                               globalId = valStr;
+                           }
                        }
                    }
-                   
-                   if (nameLower.includes("guid") || nameLower.includes("globalid") || nameLower === "objid") {
-                       if (nameLower.includes("ifc") || nameLower === "globalid" || nameLower === "objid") {
-                           globalId = valStr;
-                       } else if (globalId === "UKJENT_GUID") {
-                           globalId = valStr;
-                       }
-                   }
-               }
+                });
+              });
+
+              const nivå1 = flatProps["02. aaaaaa"] || "Udefinert 02. AAAAAA";
+              const nivå2 = slaaSammen(flatProps, "03. bnn", "04. bnn navn");
+              const nivå3 = slaaSammen(flatProps, "05. cnn", "06. cnn navn");
+              const nivå4 = slaaSammen(flatProps, "07. dnn", "08. dnn navn");
+              const nivå5 = slaaSammen(flatProps, "09. eennn", "10. eennn navn");
+              const nivå6 = slaaSammen(flatProps, "11. fffnnn", "12. fffnnn navn");
+              const nivå7 = slaaSammen(flatProps, "13. gggnnn", "14. gggnnn navn");
+              const nivå8 = slaaSammen(flatProps, "15. hhhnnnnn", "16. hhhnnnnn navn");
+              const nivå9 = flatProps["01. rds-tag"] || "Udefinert 01. RDS-tag";
+              
+              let objektNavn = flatProps["a006_objektnavn"] || flatProps["objekttype"] || obj.name || "Ukjent objekt";
+
+              const harRDS = [nivå1, nivå2, nivå3, nivå4, nivå5, nivå6, nivå7, nivå8, nivå9].some(val => !val.includes("Udefinert"));
+              if (!harRDS) return; 
+
+              const sti = [nivå1, nivå2, nivå3, nivå4, nivå5, nivå6, nivå7, nivå8, nivå9];
+              let gjeldendeNivå = rdsTree;
+              
+              sti.forEach((nodensNavn, indeks) => {
+                  if (!gjeldendeNivå[nodensNavn]) { gjeldendeNivå[nodensNavn] = { barn: {}, objekter: [] }; }
+                  if (indeks === sti.length - 1) {
+                      gjeldendeNivå[nodensNavn].objekter.push({ 
+                          navn: objektNavn, 
+                          modelId: mid, 
+                          runtimeId: obj.id || obj.objectRuntimeId,
+                          guid: globalId,
+                          flatProps: flatProps,
+                          groupedProps: groupedProps 
+                      });
+                  }
+                  gjeldendeNivå = gjeldendeNivå[nodensNavn].barn;
+              });
             });
-          });
-
-          const nivå1 = flatProps["02. aaaaaa"] || "Udefinert 02. AAAAAA";
-          const nivå2 = slaaSammen(flatProps, "03. bnn", "04. bnn navn");
-          const nivå3 = slaaSammen(flatProps, "05. cnn", "06. cnn navn");
-          const nivå4 = slaaSammen(flatProps, "07. dnn", "08. dnn navn");
-          const nivå5 = slaaSammen(flatProps, "09. eennn", "10. eennn navn");
-          const nivå6 = slaaSammen(flatProps, "11. fffnnn", "12. fffnnn navn");
-          const nivå7 = slaaSammen(flatProps, "13. gggnnn", "14. gggnnn navn");
-          const nivå8 = slaaSammen(flatProps, "15. hhhnnnnn", "16. hhhnnnnn navn");
-          const nivå9 = flatProps["01. rds-tag"] || "Udefinert 01. RDS-tag";
-          
-          let objektNavn = flatProps["a006_objektnavn"] || flatProps["objekttype"] || obj.name || "Ukjent objekt";
-
-          const harRDS = [nivå1, nivå2, nivå3, nivå4, nivå5, nivå6, nivå7, nivå8, nivå9].some(val => !val.includes("Udefinert"));
-          if (!harRDS) return; 
-
-          const sti = [nivå1, nivå2, nivå3, nivå4, nivå5, nivå6, nivå7, nivå8, nivå9];
-          let gjeldendeNivå = rdsTree;
-          
-          sti.forEach((nodensNavn, indeks) => {
-              if (!gjeldendeNivå[nodensNavn]) { gjeldendeNivå[nodensNavn] = { barn: {}, objekter: [] }; }
-              if (indeks === sti.length - 1) {
-                  gjeldendeNivå[nodensNavn].objekter.push({ 
-                      navn: objektNavn, 
-                      modelId: mid, 
-                      runtimeId: obj.id || obj.objectRuntimeId,
-                      guid: globalId,
-                      flatProps: flatProps,
-                      groupedProps: groupedProps 
-                  });
-              }
-              gjeldendeNivå = gjeldendeNivå[nodensNavn].barn;
-          });
-        });
+        } catch (chunkError) {
+            console.error("Feil ved prosessering av en chunk med objekter:", chunkError);
+        }
+        
         totalObjects += chunk.length;
       }
     }
 
     tegnOppTre(rdsTree, $('mainContent'));
     updateEditedIndicators();
-    setStatus(`✅ Tre bygget. Analyserte ${totalObjects} objekter (inkl. underobjekter).`, 'ok');
+    setStatus(`✅ Skan ferdig! Analyserte totalt ${totalObjects} elementer fra alle datalags-skuffer.`, 'ok');
     $('scanBtn').disabled = false;
 
   } catch (error) {
     setStatus(`❌ Feil under skanning: ${error.message}`, 'error');
     $('scanBtn').disabled = false;
   }
-});
-
-function oppdaterUI() {
-    const antall = EXPORT_QUEUE.length;
-    $('exportBtn').innerText = `💾 Eksporter (${antall})`;
-    $('exportBtn').disabled = antall === 0;
-    $('clearBtn').disabled = antall === 0;
-}
-
-$('clearBtn').addEventListener('click', () => {
-    EXPORT_QUEUE = [];
-    oppdaterUI();
-    updateEditedIndicators();
-    setStatus('🗑️ Køen er tømt.', 'ok');
-});
-
-$('queueBtn').addEventListener('click', async () => {
-    const newNumber = $('newRunningNumber').value.trim();
-    if (!newNumber) { alert("Du må skrive inn et nytt løpenummer først."); return; }
-    try {
-        setStatus('⏳ Henter markering...');
-        const selection = await API.viewer.getSelection();
-        let totalSelected = 0;
-        if (selection && selection.length > 0) selection.forEach(sel => { if (sel.objectRuntimeIds) totalSelected += sel.objectRuntimeIds.length; });
-        if (totalSelected === 0) { setStatus('⚠️ Ingen objekter er markert.', 'warn'); return; }
-
-        let addedCount = 0;
-        for (const sel of selection) {
-            const mid = sel.modelId;
-            const runtimeIds = sel.objectRuntimeIds; 
-            if (!runtimeIds || runtimeIds.length === 0) continue;
-            const propsArr = await API.viewer.getObjectProperties(mid, runtimeIds);
-            propsArr.forEach(obj => {
-                let globalId = "UKJENT_GUID";
-                const objRuntimeId = obj.id || obj.objectRuntimeId;
-                const flatProps = {}; 
-                
-                if (obj.properties) {
-                    for (const pset of obj.properties) {
-                        (pset.properties || []).forEach(p => {
-                            if (p.name) {
-                                const nameLower = p.name.trim().toLowerCase();
-                                const valStr = p.value !== undefined && p.value !== null ? String(p.value).trim() : "";
-                                if (valStr !== "") flatProps[nameLower] = valStr;
-                                if (nameLower.includes("guid") || nameLower.includes("globalid") || nameLower === "objid") {
-                                    if (nameLower.includes("ifc") || nameLower === "globalid" || nameLower === "objid") globalId = valStr;
-                                    else if (globalId === "UKJENT_GUID") globalId = valStr;
-                                }
-                            }
-                        });
-                    }
-                }
-
-                EXPORT_QUEUE = EXPORT_QUEUE.filter(item => !(item.modelId === mid && item.runtimeId === objRuntimeId));
-                const updateItem = {
-                    GUID: globalId, modelId: mid, runtimeId: objRuntimeId,
-                    gammelRdsTag: flatProps["01. rds-tag"] || "", egenskaperSomSkalEndres: {}
-                };
-
-                LOPENUMMER_EGENSKAPER.forEach(propName => {
-                    const gammelVerdi = flatProps[propName];
-                    if (gammelVerdi) updateItem.egenskaperSomSkalEndres[propName] = gammelVerdi.replace(/\d{1,3}$/, newNumber);
-                });
-
-                if (Object.keys(updateItem.egenskaperSomSkalEndres).length > 0) { EXPORT_QUEUE.push(updateItem); addedCount++; }
-            });
-        }
-        oppdaterUI(); 
-        updateEditedIndicators();
-        setStatus(`✅ La til ${addedCount} objekter via hurtigoppdatering.`, 'ok');
-    } catch (error) { setStatus(`❌ Feil: ${error.message}`, 'error'); }
-});
-
-$('exportBtn').addEventListener('click', () => {
-    if (EXPORT_QUEUE.length === 0) return;
-    try {
-        const jsonString = JSON.stringify(EXPORT_QUEUE, null, 2);
-        const blob = new Blob([jsonString], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url; a.download = `rds_batch_update_flere.json`;
-        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-        
-        const antallEksportert = EXPORT_QUEUE.length;
-        EXPORT_QUEUE = [];
-        oppdaterUI();
-        updateEditedIndicators();
-        
-        setStatus(`🎉 Eksporterte JSON-fil med ${antallEksportert} endringer. Køen er tømt.`, 'ok');
-    } catch (error) { setStatus(`❌ Feil under eksport: ${error.message}`, 'error'); }
 });
 
 function openModalForObject(obj) {
@@ -554,9 +483,7 @@ function openModalForFolder(nodeName, nodeData) {
     $('editModal').style.display = 'flex';
 }
 
-function closeModal() {
-    $('editModal').style.display = 'none';
-}
+function closeModal() { $('editModal').style.display = 'none'; }
 
 function saveModal() {
     let hasChanges = false;
@@ -575,10 +502,7 @@ function saveModal() {
         }
     });
 
-    if (Object.keys(plannedChanges).length === 0) {
-        closeModal();
-        return; 
-    }
+    if (Object.keys(plannedChanges).length === 0) { closeModal(); return; }
 
     currentEditTargets.forEach(target => {
         EXPORT_QUEUE = EXPORT_QUEUE.filter(item => !(item.modelId === target.modelId && item.runtimeId === target.runtimeId));
