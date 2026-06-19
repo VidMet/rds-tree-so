@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v2.5</title>
+  <title>RDS Universal Editor v2.6</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -129,8 +129,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v2.5</span></h1>
-    <p>Inkluderer fargelegging (Visualisering)</p>
+    <h1>RDS Universal Editor <span class="version">v2.6</span></h1>
+    <p>Inkluderer fargelegging via Object State API</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -294,7 +294,7 @@ async function kjorSkanner(mode) {
     $('colorBtn').disabled = true;
     $('mainContent').innerHTML = '';
     lastClickedElement = null;
-    GLOBAL_RDS_TREE = {}; // Nullstiller globalt tre
+    GLOBAL_RDS_TREE = {}; 
 
     try {
         let targetMap = {}; 
@@ -449,12 +449,18 @@ $('scanBtn').addEventListener('click', () => kjorSkanner('all'));
 $('scanSelBtn').addEventListener('click', () => kjorSkanner('selection'));
 
 // -----------------------------------------------------
-// NYHET: FARGELEGGINGS-MOTOR
+// FARGELEGGINGS-MOTOR (OPPDATERT)
 // -----------------------------------------------------
 $('colorBtn').addEventListener('click', async () => {
+    if (!API) return;
     try {
         setStatus('⏳ Beregner fargekart...', '');
         const colorPayloads = new Map();
+
+        // Nullstill farger først for å unngå feil
+        try { 
+            if (API.viewer.setObjectState) await API.viewer.setObjectState(undefined, { color: 'reset' }); 
+        } catch(e){}
 
         // Traverserer treet rekursivt
         function collectColors(levelDict, depth, currentTracker) {
@@ -475,7 +481,6 @@ $('colorBtn').addEventListener('click', async () => {
                     }
                     myColorIndex = nextTracker.usedGgg.get(key) % PALETTE.length;
                 } else if (depth > 6 && currentTracker) {
-                    // Arv fargen videre nedover i mappestrukturen
                     myColorIndex = currentTracker.myColorIndex; 
                 }
 
@@ -492,7 +497,6 @@ $('colorBtn').addEventListener('click', async () => {
                     });
                 }
 
-                // Send fargen videre ned til barna
                 if (depth === 6) {
                     nextTracker = { ...nextTracker, myColorIndex: myColorIndex };
                 }
@@ -503,26 +507,24 @@ $('colorBtn').addEventListener('click', async () => {
 
         collectColors(GLOBAL_RDS_TREE, 0, null);
 
-        // Klargjør data for Trimble Connect API
-        const payload = [];
+        // Klargjør data for Trimble Connect API via setObjectState
         for (const [colIdx, modelMap] of colorPayloads.entries()) {
             const modelObjectIds = [];
             for (const [mid, ids] of Object.entries(modelMap)) {
                 modelObjectIds.push({ modelId: mid, objectRuntimeIds: ids });
             }
-            payload.push({
-                color: PALETTE[colIdx],
-                modelObjectIds: modelObjectIds
-            });
+            
+            if (modelObjectIds.length > 0 && API.viewer.setObjectState) {
+                await API.viewer.setObjectState(
+                    { modelObjectIds: modelObjectIds }, 
+                    { color: PALETTE[colIdx] }
+                );
+            }
         }
 
-        if (API.viewer.setColors) {
-            await API.viewer.setColors(payload);
-            $('resetColorBtn').style.display = 'inline-block';
-            setStatus('✅ Fargelegging fullført!', 'ok');
-        } else {
-            setStatus('❌ Fargelegging støttes ikke av denne API-versjonen.', 'error');
-        }
+        $('resetColorBtn').style.display = 'inline-block';
+        setStatus('✅ Fargelegging fullført!', 'ok');
+        
     } catch (err) {
         console.error(err);
         setStatus('❌ Feil under fargelegging.', 'error');
@@ -531,10 +533,8 @@ $('colorBtn').addEventListener('click', async () => {
 
 $('resetColorBtn').addEventListener('click', async () => {
     try {
-        if (API.viewer.resetColors) {
-            await API.viewer.resetColors();
-        } else if (API.viewer.setColors) {
-            await API.viewer.setColors([]); 
+        if (API.viewer.setObjectState) {
+            await API.viewer.setObjectState(undefined, { color: 'reset' });
         }
         $('resetColorBtn').style.display = 'none';
         setStatus('💧 Farger nullstilt til standard.', 'ok');
@@ -556,6 +556,8 @@ $('debugBtn').addEventListener('click', async () => {
         const mid = selection[0].modelId;
         const rIds = selection[0].objectRuntimeIds;
         const propsArr = await API.viewer.getObjectProperties(mid, rIds);
+        
+        console.log("🐞 RÅDATA FOR MARKERT OBJEKT:", propsArr);
         
         let debugMsg = "--- FEILSØKINGSRAPPORT ---\n\n";
         propsArr.forEach((obj, idx) => {
