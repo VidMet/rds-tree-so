@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v2.9</title>
+  <title>RDS Universal Editor v3.0</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -58,7 +58,6 @@
     .btn-success { background: var(--green); color: #ffffff; }
     .btn-danger { background: var(--surface2); color: var(--red); border: 1px solid var(--border); }
     
-    /* Farge-knapper */
     .btn-color { background: #8b5cf6; color: #ffffff; }
     .btn-color-reset { background: var(--surface2); color: #8b5cf6; border: 1px solid var(--border); padding: 7px 8px; }
 
@@ -97,6 +96,17 @@
     .tree-edit-btn:hover { opacity: 1; background: var(--surface2); border-color: var(--border); }
     .tree-edit-btn.is-edited { opacity: 1; background: var(--red-dim); color: var(--red); border-color: var(--red); font-weight: bold; }
 
+    /* NYTT: FARGE-FIRKANTEN I TREET */
+    .color-indicator {
+        display: none;
+        width: 10px;
+        height: 10px;
+        border-radius: 3px;
+        margin-right: 6px;
+        border: 1px solid rgba(0,0,0,0.2);
+        flex-shrink: 0;
+    }
+
     .empty { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 13px; }
 
     .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
@@ -128,8 +138,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v2.9</span></h1>
-    <p>Fargelegging med C-ledd nullstilling</p>
+    <h1>RDS Universal Editor <span class="version">v3.0</span></h1>
+    <p>Visuell fargesynkronisering i tre-strukturen</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -176,6 +186,7 @@ let EXPORT_QUEUE = [];
 let currentEditTargets = []; 
 let lastClickedElement = null; 
 let GLOBAL_RDS_TREE = {}; 
+window.assignedColorsMap = new Map(); // Husker fargene for treet
 
 const LOPENUMMER_EGENSKAPER = [
     "01. rds-tag", 
@@ -188,7 +199,6 @@ const SYSTEM_PSETS = [
     'common', 'quantities', 'trimble', 'ifcslab', 'ifcwall', 'ifcalignment'
 ];
 
-// Kellys 20 farger for maksimal kontrast
 const PALETTE = [
     {r:230, g:25,  b:75,  a:255}, {r:60,  g:180, b:75,  a:255}, {r:255, g:225, b:25,  a:255}, 
     {r:0,   g:130, b:200, a:255}, {r:245, g:130, b:48,  a:255}, {r:145, g:30,  b:180, a:255}, 
@@ -255,6 +265,47 @@ function updateEditedIndicators() {
         } else {
             btn.classList.remove('is-edited');
             btn.innerHTML = '✏️';
+        }
+    });
+}
+
+// NY FUNKSJON: Oppdaterer fargefirkantene i treet
+function updateColorIndicatorsUI() {
+    document.querySelectorAll('.tree-object').forEach(row => {
+        const id = row.getAttribute('data-id');
+        const color = window.assignedColorsMap.get(id);
+        const ind = row.querySelector('.color-indicator');
+        if (ind) {
+            if (color) {
+                ind.style.backgroundColor = color;
+                ind.style.display = 'block';
+            } else {
+                ind.style.display = 'none';
+            }
+        }
+    });
+
+    document.querySelectorAll('.tree-header').forEach(header => {
+        const idsStr = header.getAttribute('data-folder-ids');
+        const ind = header.querySelector('.color-indicator');
+        if (!idsStr || !ind) return;
+        
+        const ids = idsStr.split(',');
+        let firstColor = null;
+        let allSame = true;
+        
+        for(let id of ids) {
+            const c = window.assignedColorsMap.get(id);
+            if (!c) { allSame = false; break; }
+            if (!firstColor) firstColor = c;
+            else if (firstColor !== c) { allSame = false; break; }
+        }
+        
+        if (allSame && firstColor) {
+            ind.style.backgroundColor = firstColor;
+            ind.style.display = 'block';
+        } else {
+            ind.style.display = 'none';
         }
     });
 }
@@ -430,6 +481,8 @@ async function kjorSkanner(mode) {
 
         tegnOppTre(GLOBAL_RDS_TREE, $('mainContent'));
         updateEditedIndicators();
+        updateColorIndicatorsUI(); // Sørger for at fargene består hvis de lå i minnet
+        
         setStatus(`✅ Skanning fullført. Fant ${totalObjects} gyldige objekter.`, 'ok');
         $('scanBtn').disabled = false;
         $('scanSelBtn').disabled = false;
@@ -446,20 +499,21 @@ $('scanBtn').addEventListener('click', () => kjorSkanner('all'));
 $('scanSelBtn').addEventListener('click', () => kjorSkanner('selection'));
 
 // -----------------------------------------------------
-// FARGELEGGINGS-MOTOR (OPPDATERT TIL HHH OG CNN-RESET)
+// FARGELEGGINGS-MOTOR MED TRE-OPPDATERING
 // -----------------------------------------------------
 $('colorBtn').addEventListener('click', async () => {
     if (!API) return;
     try {
         setStatus('⏳ Beregner fargekart...', '');
         const colorPayloads = new Map();
+        
+        // Nullstill UI-kartet for nye farger
+        window.assignedColorsMap = new Map();
 
-        // Nullstill farger først for å unngå feil
         try { 
             if (API.viewer.setObjectState) await API.viewer.setObjectState(undefined, { color: 'reset' }); 
         } catch(e){}
 
-        // Traverserer treet rekursivt
         function collectColors(levelDict, depth, currentTracker) {
             for (const [key, nodeData] of Object.entries(levelDict)) {
                 let nextTracker = currentTracker;
@@ -481,13 +535,18 @@ $('colorBtn').addEventListener('click', async () => {
                     myColorIndex = currentTracker.myColorIndex; 
                 }
 
-                // Legg objektene i riktig fargebøtte
                 if (myColorIndex !== -1 && nodeData.objekter.length > 0) {
                     if (!colorPayloads.has(myColorIndex)) colorPayloads.set(myColorIndex, {});
                     let cMap = colorPayloads.get(myColorIndex);
+                    
+                    const rgba = PALETTE[myColorIndex];
+                    const rgbStr = `rgb(${rgba.r}, ${rgba.g}, ${rgba.b})`;
 
                     nodeData.objekter.forEach(obj => {
                         if (obj.runtimeId != null) {
+                            // Lagrer fargen i minnet for treet
+                            window.assignedColorsMap.set(`${obj.modelId}_${obj.runtimeId}`, rgbStr);
+                            
                             if (!cMap[obj.modelId]) cMap[obj.modelId] = [];
                             cMap[obj.modelId].push(Number(obj.runtimeId));
                         }
@@ -504,7 +563,6 @@ $('colorBtn').addEventListener('click', async () => {
 
         collectColors(GLOBAL_RDS_TREE, 0, null);
 
-        // Klargjør data for Trimble Connect API via setObjectState
         for (const [colIdx, modelMap] of colorPayloads.entries()) {
             const modelObjectIds = [];
             for (const [mid, ids] of Object.entries(modelMap)) {
@@ -519,6 +577,7 @@ $('colorBtn').addEventListener('click', async () => {
             }
         }
 
+        updateColorIndicatorsUI(); // Sender fargene ut i grensesnittet
         $('resetColorBtn').style.display = 'inline-block';
         setStatus('✅ Fargelegging fullført!', 'ok');
         
@@ -533,6 +592,10 @@ $('resetColorBtn').addEventListener('click', async () => {
         if (API.viewer.setObjectState) {
             await API.viewer.setObjectState(undefined, { color: 'reset' });
         }
+        
+        window.assignedColorsMap = new Map(); // Sletter fargene fra minnet
+        updateColorIndicatorsUI(); // Skjuler firkantene
+        
         $('resetColorBtn').style.display = 'none';
         setStatus('💧 Farger nullstilt til standard.', 'ok');
     } catch (err) {
@@ -800,13 +863,22 @@ function tegnOppTre(treStruktur, container, erRot = true) {
         const safeNøkkel = escapeHTML(nøkkel);
         
         const erLavesteMappe = Object.keys(nodeData.barn).length === 0;
-        const alleIds = nodeData.objekter.map(o => `${o.modelId}_${o.runtimeId}`).join(',');
-        let editHtml = erLavesteMappe ? `<div class="tree-edit-btn" data-folder-ids="${alleIds}" title="Endre egenskaper for alle objekter i mappen">✏️</div>` : '';
+        
+        const allIdsMap = hentAlleIds(nodeData);
+        let allIdsFlat = [];
+        for (const mid in allIdsMap) {
+            allIdsMap[mid].forEach(rid => allIdsFlat.push(`${mid}_${rid}`));
+        }
+        const idsString = allIdsFlat.join(',');
+        
+        headerDiv.setAttribute('data-folder-ids', idsString);
+        let editHtml = erLavesteMappe ? `<div class="tree-edit-btn" title="Endre egenskaper for alle objekter i mappen">✏️</div>` : '';
 
-        headerDiv.innerHTML = `<div class="tree-arrow">▶</div><div class="tree-title" title="${safeNøkkel}">${safeNøkkel}</div><div class="tree-count">${totaltAntall} obj</div>${editHtml}`;
+        // Lagt inn color-indicator i mappen!
+        headerDiv.innerHTML = `<div class="tree-arrow">▶</div><div class="color-indicator"></div><div class="tree-title" title="${safeNøkkel}">${safeNøkkel}</div><div class="tree-count">${totaltAntall} obj</div>${editHtml}`;
         const childrenDiv = document.createElement('div'); childrenDiv.className = 'tree-children';
         
-        headerDiv._modelObjectIds = formaterForMarkering(hentAlleIds(nodeData));
+        headerDiv._modelObjectIds = formaterForMarkering(allIdsMap);
 
         headerDiv.onclick = async (e) => {
             e.stopPropagation();
@@ -844,7 +916,10 @@ function tegnOppTre(treStruktur, container, erRot = true) {
         if (nodeData.objekter.length > 0) {
             nodeData.objekter.sort((a, b) => a.navn.localeCompare(b.navn)).forEach(obj => {
                 const objDiv = document.createElement('div'); objDiv.className = 'tree-object'; 
-                objDiv.innerHTML = `<div style="flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${obj.navn}">${obj.navn}</div><div class="tree-edit-btn" data-id="${obj.modelId}_${obj.runtimeId}" title="Endre egendefinerte egenskaper">✏️</div>`;
+                objDiv.setAttribute('data-id', `${obj.modelId}_${obj.runtimeId}`);
+                
+                // Lagt inn color-indicator i objektet!
+                objDiv.innerHTML = `<div class="color-indicator"></div><div style="flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${obj.navn}">${obj.navn}</div><div class="tree-edit-btn" data-id="${obj.modelId}_${obj.runtimeId}" title="Endre egendefinerte egenskaper">✏️</div>`;
                 
                 objDiv._modelObjectIds = [{ modelId: obj.modelId, objectRuntimeIds: [Number(obj.runtimeId)] }];
 
