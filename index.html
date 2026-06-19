@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v2.6</title>
+  <title>RDS Universal Editor v2.7</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -129,8 +129,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v2.6</span></h1>
-    <p>Inkluderer fargelegging via Object State API</p>
+    <h1>RDS Universal Editor <span class="version">v2.7</span></h1>
+    <p>Inkluderer fargelegging (HHH-nivå & FFF-reset)</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -142,7 +142,7 @@
   <input type="text" id="newRunningNumber" class="input-field" placeholder="Nytt løp.nr (eks: 04)">
   <button class="btn btn-primary" id="queueBtn" disabled>➕ Hurtigoppdater</button>
   
-  <button class="btn btn-color" id="colorBtn" title="Fargelegg GGG-grupperinger" disabled>🎨 Fargelegg (GGG)</button>
+  <button class="btn btn-color" id="colorBtn" title="Fargelegg HHH-grupperinger" disabled>🎨 Fargelegg (HHH)</button>
   <button class="btn btn-color-reset" id="resetColorBtn" title="Fjern farger" style="display:none;">💧</button>
   
   <div style="flex-grow: 1;"></div>
@@ -449,7 +449,7 @@ $('scanBtn').addEventListener('click', () => kjorSkanner('all'));
 $('scanSelBtn').addEventListener('click', () => kjorSkanner('selection'));
 
 // -----------------------------------------------------
-// FARGELEGGINGS-MOTOR (OPPDATERT)
+// FARGELEGGINGS-MOTOR (OPPDATERT TIL HHH OG FFF)
 // -----------------------------------------------------
 $('colorBtn').addEventListener('click', async () => {
     if (!API) return;
@@ -467,20 +467,20 @@ $('colorBtn').addEventListener('click', async () => {
             for (const [key, nodeData] of Object.entries(levelDict)) {
                 let nextTracker = currentTracker;
 
-                // Nivå 5: EEnnn (Nullstill paletten!)
-                if (depth === 4) { 
-                    nextTracker = { index: 0, usedGgg: new Map() };
+                // Nivå 6: FFFnnn (Nullstill paletten!) - indeks 5
+                if (depth === 5) { 
+                    nextTracker = { index: 0, usedHhh: new Map() };
                 }
 
                 let myColorIndex = -1;
                 
-                // Nivå 7: GGGnnn (Tildel farge)
-                if (depth === 6 && nextTracker) { 
-                    if (!nextTracker.usedGgg.has(key)) {
-                        nextTracker.usedGgg.set(key, nextTracker.index++);
+                // Nivå 8: HHHnnnnn (Tildel farge) - indeks 7
+                if (depth === 7 && nextTracker) { 
+                    if (!nextTracker.usedHhh.has(key)) {
+                        nextTracker.usedHhh.set(key, nextTracker.index++);
                     }
-                    myColorIndex = nextTracker.usedGgg.get(key) % PALETTE.length;
-                } else if (depth > 6 && currentTracker) {
+                    myColorIndex = nextTracker.usedHhh.get(key) % PALETTE.length;
+                } else if (depth > 7 && currentTracker) {
                     myColorIndex = currentTracker.myColorIndex; 
                 }
 
@@ -497,7 +497,7 @@ $('colorBtn').addEventListener('click', async () => {
                     });
                 }
 
-                if (depth === 6) {
+                if (depth === 7) {
                     nextTracker = { ...nextTracker, myColorIndex: myColorIndex };
                 }
                 
