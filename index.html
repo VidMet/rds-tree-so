@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v1.9.1</title>
+  <title>RDS Universal Editor v1.9.2</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -95,7 +95,6 @@
 
     .empty { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 13px; }
 
-    /* MODAL CSS */
     .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
     .modal-box { background: var(--surface); padding: 20px; border-radius: 8px; width: 440px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border: 1px solid var(--border); display: flex; flex-direction: column; max-height: 90vh; }
     .modal-box h3 { margin: 0 0 4px 0; font-size: 15px; }
@@ -131,8 +130,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v1.9.1</span></h1>
-    <p>Dyp skanning & Visuell redigeringsstatus</p>
+    <h1>RDS Universal Editor <span class="version">v1.9.2</span></h1>
+    <p>Ekstrem skanning av underobjekter (Parts/Instances)</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   <button class="btn btn-primary" id="scanBtn" disabled>▶ Bygg RDS-tre</button>
@@ -265,16 +264,22 @@ $('scanBtn').addEventListener('click', async () => {
     for (const model of models) {
       const mid = model.modelId || model.modelid;
       
-      // NY REKURSIV FUNKSJON FOR Å FANGE OPP ALLE UNDEROBJEKTER (PARTS)
       let objectIds = [];
+      const seenIds = new Set();
+      
+      // DEN EKSTREME GRAVEMASKINEN: Sjekker alle mulige gjemmesteder
       function pakkUtObjekter(objList) {
+          if (!objList || !Array.isArray(objList)) return;
           for (const o of objList) {
               const rId = o.id || o.objectRuntimeId;
-              if (rId != null) objectIds.push(rId);
-              // Graver videre nedover i hierarkiet
-              if (o.children && o.children.length > 0) {
-                  pakkUtObjekter(o.children);
+              if (rId != null && !seenIds.has(rId)) {
+                  objectIds.push(rId);
+                  seenIds.add(rId);
               }
+              
+              if (o.children && o.children.length > 0) pakkUtObjekter(o.children);
+              if (o.parts && o.parts.length > 0) pakkUtObjekter(o.parts);
+              if (o.instances && o.instances.length > 0) pakkUtObjekter(o.instances);
           }
       }
       pakkUtObjekter(model.objects || []);
