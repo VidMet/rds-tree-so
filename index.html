@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Viewer & Editor v1.5.1</title>
+  <title>RDS Editor v1.6</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -66,7 +66,7 @@
     #statusBar.error { background: var(--red-dim);   color: var(--red); }
     #statusBar.warn  { background: #fef08a; color: #854d0e; }
 
-    main { flex: 1 1 auto; overflow-y: auto; padding: 16px; height: 0; }
+    main { flex: 1 1 auto; overflow-y: auto; padding: 16px; height: 0; position: relative; }
 
     .tree-container { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px 12px 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
     .tree-node { margin-left: 14px; position: relative; }
@@ -82,12 +82,24 @@
     
     .tree-children { display: none; }
     
-    .tree-object { display: flex; align-items: center; margin-left: 14px; padding: 6px 8px 6px 28px; font-size: 12px; color: var(--ink); cursor: pointer; transition: background 0.1s; border-radius: 4px; position: relative; margin-top: 2px; }
+    .tree-object { display: flex; align-items: center; justify-content: space-between; margin-left: 14px; padding: 6px 8px 6px 28px; font-size: 12px; color: var(--ink); cursor: pointer; transition: background 0.1s; border-radius: 4px; position: relative; margin-top: 2px; }
     .tree-object::before { content: ""; position: absolute; top: 0; left: -8px; bottom: auto; height: 16px; border-left: 1px solid var(--border); border-bottom: 1px solid var(--border); width: 12px; }
     .tree-object:hover { background: var(--blue-dim); color: var(--blue); }
     .tree-object::after { content: "🧊"; position: absolute; left: 10px; font-size: 10px; }
 
+    .tree-edit-btn { margin-left: 8px; cursor: pointer; opacity: 0.4; font-size: 12px; padding: 2px 4px; border-radius: 4px; }
+    .tree-edit-btn:hover { opacity: 1; background: var(--surface2); }
+
     .empty { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 13px; }
+
+    /* MODAL CSS */
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .modal-box { background: var(--surface); padding: 20px; border-radius: 8px; width: 340px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border: 1px solid var(--border); }
+    .modal-box h3 { margin: 0 0 4px 0; font-size: 15px; }
+    .modal-box p { margin: 0 0 16px 0; font-size: 11px; color: var(--muted); word-break: break-all; }
+    .modal-form-group { margin-bottom: 12px; }
+    .modal-form-group label { display: block; font-size: 11px; font-weight: bold; margin-bottom: 4px; color: var(--ink); }
+    .modal-form-group input { width: 100%; font-family: var(--mono); }
 
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: var(--bg); }
@@ -105,8 +117,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Viewer <span class="version">v1.5.1</span></h1>
-    <p>Hierarkisk visning & Batch-editering (m/ ObjID)</p>
+    <h1>RDS Editor <span class="version">v1.6</span></h1>
+    <p>Avansert skjemaredigering & Batch-eksport</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   <button class="btn btn-primary" id="scanBtn" disabled>▶ Bygg RDS-tre</button>
@@ -114,7 +126,7 @@
 
 <div id="editPanel">
   <input type="text" id="newRunningNumber" class="input-field" placeholder="Nytt løp.nr (eks: 04)">
-  <button class="btn btn-primary" id="queueBtn" disabled>➕ Legg til i kø</button>
+  <button class="btn btn-primary" id="queueBtn" disabled>➕ Søk/erstatt (Markert)</button>
   <div style="flex-grow: 1;"></div>
   <button class="btn btn-danger" id="clearBtn" disabled>Tøm</button>
   <button class="btn btn-success" id="exportBtn" disabled>💾 Eksporter (0)</button>
@@ -126,9 +138,32 @@
   <div class="empty anim">Klikk på "Bygg RDS-tre" for å skanne modellene.</div>
 </main>
 
+<div id="editModal" class="modal-overlay" style="display:none;">
+    <div class="modal-box">
+        <h3 id="modalTitle">Rediger egenskaper</h3>
+        <p id="modalSubtitle"></p>
+        <div id="modalWarning" style="display:none; font-size:11px; color:var(--blue); margin-bottom:12px; background:var(--blue-dim); padding:8px; border-radius:4px;">
+            Advarsel: Verdiene du fyller inn her vil overskrive eksisterende data for <b>ALLE</b> objektene i denne mappen. La feltet stå tomt for å beholde dagens verdi.
+        </div>
+        <div id="modalForm"></div>
+        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:20px;">
+            <button class="btn btn-danger" onclick="closeModal()">Avbryt</button>
+            <button class="btn btn-success" onclick="saveModal()">Lagre i kø</button>
+        </div>
+    </div>
+</div>
+
 <script>
 let API = null;
 let EXPORT_QUEUE = [];
+let currentEditTargets = []; 
+
+// Egenskapene som skal vises i skjemaet
+const MODAL_EGENSKAPER = [
+    "01. rds-tag", 
+    "15. hhhnnnnn", 
+    "16. hhhnnnnn navn"
+];
 
 const $ = id => document.getElementById(id);
 const setStatus = (m, c='') => { $('statusBar').textContent = m; $('statusBar').className = c; };
@@ -159,6 +194,7 @@ function slaaSammen(props, nøkkel1, nøkkel2) {
     return "Udefinert";
 }
 
+// BYGG TRE (Oppdatert for å samle inn GUID direkte)
 $('scanBtn').addEventListener('click', async () => {
   if (!API) return;
   $('scanBtn').disabled = true;
@@ -187,12 +223,27 @@ $('scanBtn').addEventListener('click', async () => {
         const propsArr = await API.viewer.getObjectProperties(mid, chunk);
         
         propsArr.forEach(obj => {
+          let globalId = "UKJENT_GUID";
+          if (obj.externalId) globalId = obj.externalId;
+          else if (obj.globalId) globalId = obj.globalId;
+          else if (obj.ifcGuid) globalId = obj.ifcGuid;
+
           const flatProps = {};
           (obj.properties || []).forEach(pset => 
             (pset.properties || []).forEach(p => {
-               if (p.value !== undefined && p.value !== null && String(p.value).trim() !== "") {
-                   flatProps[p.name] = String(p.value).trim();
-                   flatProps[p.name.toLowerCase()] = String(p.value).trim(); 
+               if (p.name) {
+                   const nameLower = p.name.trim().toLowerCase();
+                   const valStr = p.value !== undefined && p.value !== null ? String(p.value).trim() : "";
+                   if (valStr !== "") flatProps[nameLower] = valStr;
+                   
+                   // Aggressiv GUID-søk
+                   if (nameLower.includes("guid") || nameLower.includes("globalid") || nameLower === "objid") {
+                       if (nameLower.includes("ifc") || nameLower === "globalid" || nameLower === "objid") {
+                           globalId = valStr;
+                       } else if (globalId === "UKJENT_GUID") {
+                           globalId = valStr;
+                       }
+                   }
                }
             })
           );
@@ -218,7 +269,13 @@ $('scanBtn').addEventListener('click', async () => {
           sti.forEach((nodensNavn, indeks) => {
               if (!gjeldendeNivå[nodensNavn]) { gjeldendeNivå[nodensNavn] = { barn: {}, objekter: [] }; }
               if (indeks === sti.length - 1) {
-                  gjeldendeNivå[nodensNavn].objekter.push({ navn: objektNavn, modelId: mid, runtimeId: obj.id || obj.objectRuntimeId });
+                  gjeldendeNivå[nodensNavn].objekter.push({ 
+                      navn: objektNavn, 
+                      modelId: mid, 
+                      runtimeId: obj.id || obj.objectRuntimeId,
+                      guid: globalId,
+                      flatProps: Object.assign({}, flatProps) // Tar vare på egenskapene for Modal-redigering
+                  });
               }
               gjeldendeNivå = gjeldendeNivå[nodensNavn].barn;
           });
@@ -237,12 +294,7 @@ $('scanBtn').addEventListener('click', async () => {
   }
 });
 
-const EGENSKAPER_SOM_SKAL_OPPDATERES = [
-    "01. rds-tag", 
-    "15. hhhnnnnn", 
-    "16. hhhnnnnn navn"
-];
-
+// UI OG EKSPORT LOGIKK
 function oppdaterUI() {
     const antall = EXPORT_QUEUE.length;
     $('exportBtn').innerText = `💾 Eksporter (${antall})`;
@@ -256,41 +308,27 @@ $('clearBtn').addEventListener('click', () => {
     setStatus('🗑️ Køen er tømt.', 'ok');
 });
 
+// Den gamle søk/erstatt funksjonen (beholdes for store batcher)
 $('queueBtn').addEventListener('click', async () => {
     const newNumber = $('newRunningNumber').value.trim();
-    if (!newNumber) {
-        alert("Du må skrive inn et nytt løpenummer først.");
-        return;
-    }
-
+    if (!newNumber) { alert("Du må skrive inn et nytt løpenummer først."); return; }
     try {
-        setStatus('⏳ Henter markering og forbereder data...');
+        setStatus('⏳ Henter markering...');
         const selection = await API.viewer.getSelection();
-        
         let totalSelected = 0;
-        if (selection && selection.length > 0) {
-            selection.forEach(sel => { if (sel.objectRuntimeIds) totalSelected += sel.objectRuntimeIds.length; });
-        }
-
-        if (totalSelected === 0) {
-            setStatus('⚠️ Ingen objekter er markert i 3D-modellen.', 'warn');
-            return;
-        }
+        if (selection && selection.length > 0) selection.forEach(sel => { if (sel.objectRuntimeIds) totalSelected += sel.objectRuntimeIds.length; });
+        if (totalSelected === 0) { setStatus('⚠️ Ingen objekter er markert.', 'warn'); return; }
 
         let addedCount = 0;
-
         for (const sel of selection) {
             const mid = sel.modelId;
             const runtimeIds = sel.objectRuntimeIds; 
             if (!runtimeIds || runtimeIds.length === 0) continue;
-            
             const propsArr = await API.viewer.getObjectProperties(mid, runtimeIds);
-            
             propsArr.forEach(obj => {
                 let globalId = "UKJENT_GUID";
                 const objRuntimeId = obj.id || obj.objectRuntimeId;
                 const flatProps = {}; 
-                
                 if (obj.externalId) globalId = obj.externalId;
                 else if (obj.globalId) globalId = obj.globalId;
                 else if (obj.ifcGuid) globalId = obj.ifcGuid;
@@ -301,57 +339,34 @@ $('queueBtn').addEventListener('click', async () => {
                             if (p.name) {
                                 const nameLower = p.name.trim().toLowerCase();
                                 const valStr = p.value !== undefined && p.value !== null ? String(p.value).trim() : "";
-                                
                                 if (valStr !== "") flatProps[nameLower] = valStr;
-
-                                // OPPDATERT: Søker nå også eksplisitt etter "objid"
                                 if (nameLower.includes("guid") || nameLower.includes("globalid") || nameLower === "objid") {
-                                    if (nameLower.includes("ifc") || nameLower === "globalid" || nameLower === "objid") {
-                                        globalId = valStr;
-                                    } else if (globalId === "UKJENT_GUID") {
-                                        globalId = valStr;
-                                    }
+                                    if (nameLower.includes("ifc") || nameLower === "globalid" || nameLower === "objid") globalId = valStr;
+                                    else if (globalId === "UKJENT_GUID") globalId = valStr;
                                 }
                             }
                         });
                     }
                 }
 
-                if (globalId === "UKJENT_GUID") {
-                    console.warn(`⚠️ Fant ikke GUID/ObjID for objekt RuntimeID: ${objRuntimeId}. Her er all rådata for inspeksjon:`, obj);
-                }
-
                 EXPORT_QUEUE = EXPORT_QUEUE.filter(item => !(item.modelId === mid && item.runtimeId === objRuntimeId));
-
                 const updateItem = {
-                    GUID: globalId,
-                    modelId: mid,
-                    runtimeId: objRuntimeId,
-                    gammelRdsTag: flatProps["01. rds-tag"] || "",
-                    egenskaperSomSkalEndres: {}
+                    GUID: globalId, modelId: mid, runtimeId: objRuntimeId,
+                    gammelRdsTag: flatProps["01. rds-tag"] || "", egenskaperSomSkalEndres: {}
                 };
 
-                EGENSKAPER_SOM_SKAL_OPPDATERES.forEach(propName => {
+                MODAL_EGENSKAPER.forEach(propName => {
                     const gammelVerdi = flatProps[propName];
                     if (gammelVerdi) {
-                        const nyVerdi = gammelVerdi.replace(/\d{1,3}$/, newNumber);
-                        updateItem.egenskaperSomSkalEndres[propName] = nyVerdi;
+                        updateItem.egenskaperSomSkalEndres[propName] = gammelVerdi.replace(/\d{1,3}$/, newNumber);
                     }
                 });
 
-                if (Object.keys(updateItem.egenskaperSomSkalEndres).length > 0) {
-                    EXPORT_QUEUE.push(updateItem);
-                    addedCount++;
-                }
+                if (Object.keys(updateItem.egenskaperSomSkalEndres).length > 0) { EXPORT_QUEUE.push(updateItem); addedCount++; }
             });
         }
-
-        oppdaterUI();
-        setStatus(`✅ La til ${addedCount} objekter i køen. Totalt: ${EXPORT_QUEUE.length}`, 'ok');
-
-    } catch (error) {
-        setStatus(`❌ Feil ved innhenting: ${error.message}`, 'error');
-    }
+        oppdaterUI(); setStatus(`✅ La til ${addedCount} objekter via tekstboks.`, 'ok');
+    } catch (error) { setStatus(`❌ Feil: ${error.message}`, 'error'); }
 });
 
 $('exportBtn').addEventListener('click', () => {
@@ -361,47 +376,136 @@ $('exportBtn').addEventListener('click', () => {
         const blob = new Blob([jsonString], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
-        a.href = url;
-        a.download = `rds_batch_update_flere.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        a.href = url; a.download = `rds_batch_update_flere.json`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
         setStatus(`🎉 Eksporterte JSON-fil med ${EXPORT_QUEUE.length} endringer.`, 'ok');
-    } catch (error) {
-        setStatus(`❌ Feil under eksport: ${error.message}`, 'error');
-    }
+    } catch (error) { setStatus(`❌ Feil under eksport: ${error.message}`, 'error'); }
 });
 
+// MODAL FUNKSJONALITET
+function openModalForObject(obj) {
+    currentEditTargets = [obj];
+    $('modalTitle').innerText = 'Rediger objekt';
+    $('modalSubtitle').innerText = obj.navn;
+    $('modalWarning').style.display = 'none';
+    
+    let html = '';
+    MODAL_EGENSKAPER.forEach(prop => {
+        const val = obj.flatProps[prop] || '';
+        html += `<div class="modal-form-group">
+                   <label>${prop.toUpperCase()}</label>
+                   <input type="text" class="input-field" data-prop="${prop}" value="${escapeHTML(val)}">
+                 </div>`;
+    });
+    $('modalForm').innerHTML = html;
+    $('editModal').style.display = 'flex';
+}
+
+function openModalForFolder(nodeName, nodeData) {
+    currentEditTargets = nodeData.objekter;
+    $('modalTitle').innerText = 'Batch-rediger mappe';
+    $('modalSubtitle').innerText = `${nodeName} (${currentEditTargets.length} objekter)`;
+    $('modalWarning').style.display = 'block';
+    
+    const sampleObj = currentEditTargets[0];
+    let html = '';
+    MODAL_EGENSKAPER.forEach(prop => {
+        const sampleVal = sampleObj.flatProps[prop] || '';
+        html += `<div class="modal-form-group">
+                   <label>${prop.toUpperCase()} <span style="font-weight:normal;color:var(--muted);">(eks: ${escapeHTML(sampleVal)})</span></label>
+                   <input type="text" class="input-field" data-prop="${prop}" placeholder="Ny verdi for alle objektene...">
+                 </div>`;
+    });
+    $('modalForm').innerHTML = html;
+    $('editModal').style.display = 'flex';
+}
+
+function closeModal() {
+    $('editModal').style.display = 'none';
+}
+
+function saveModal() {
+    const inputs = $('modalForm').querySelectorAll('input');
+    let changes = {};
+    let hasChanges = false;
+    
+    inputs.forEach(inp => {
+        const prop = inp.getAttribute('data-prop');
+        const val = inp.value.trim();
+        if (val !== "") { changes[prop] = val; hasChanges = true; }
+    });
+    
+    if (!hasChanges) { closeModal(); return; }
+
+    currentEditTargets.forEach(target => {
+        EXPORT_QUEUE = EXPORT_QUEUE.filter(item => !(item.modelId === target.modelId && item.runtimeId === target.runtimeId));
+        const updateItem = {
+            GUID: target.guid,
+            modelId: target.modelId,
+            runtimeId: target.runtimeId,
+            gammelRdsTag: target.flatProps["01. rds-tag"] || "",
+            egenskaperSomSkalEndres: { ...changes }
+        };
+        EXPORT_QUEUE.push(updateItem);
+    });
+
+    oppdaterUI();
+    setStatus(`✅ Lagret endringer i køen for ${currentEditTargets.length} objekter via skjema.`, 'ok');
+    closeModal();
+}
+
+// BYGGE TRE UI
 function tellObjekter(nodeMap) { let count = nodeMap.objekter.length; for (const key in nodeMap.barn) { count += tellObjekter(nodeMap.barn[key]); } return count; }
 function hentAlleIds(nodeMap) { let idMap = {}; nodeMap.objekter.forEach(obj => { if (!idMap[obj.modelId]) idMap[obj.modelId] = []; idMap[obj.modelId].push(Number(obj.runtimeId)); }); for (const key in nodeMap.barn) { const barnIds = hentAlleIds(nodeMap.barn[key]); for (const mid in barnIds) { if (!idMap[mid]) idMap[mid] = []; idMap[mid].push(...barnIds[mid]); } } return idMap; }
 function formaterForMarkering(idMap) { return Object.keys(idMap).map(mid => ({ modelId: mid, objectRuntimeIds: idMap[mid] })); }
+
 function tegnOppTre(treStruktur, container, erRot = true) {
     const nøkler = Object.keys(treStruktur).sort();
-    if (nøkler.length === 0 && erRot) { container.innerHTML = '<div class="empty anim">Fant ingen objekter med RDS-egenskaper.</div>'; return; }
+    if (nøkler.length === 0 && erRot) { container.innerHTML = '<div class="empty anim">Fant ingen objekter.</div>'; return; }
     const wrapper = document.createElement('div');
     if (erRot) { wrapper.className = 'tree-container anim'; container.appendChild(wrapper); }
+    
     nøkler.forEach(nøkkel => {
         const nodeData = treStruktur[nøkkel];
         const totaltAntall = tellObjekter(nodeData);
         if (totaltAntall === 0) return;
+        
         const nodeDiv = document.createElement('div'); nodeDiv.className = erRot ? '' : 'tree-node';
         const headerDiv = document.createElement('div'); headerDiv.className = 'tree-header';
         const safeNøkkel = escapeHTML(nøkkel);
-        headerDiv.innerHTML = `<div class="tree-arrow">▶</div><div class="tree-title" title="${safeNøkkel}">${safeNøkkel}</div><div class="tree-count">${totaltAntall} obj</div>`;
+        
+        // Sjekk om dette er det laveste mappenivået (har objekter, men ingen undermapper)
+        const erLavesteMappe = Object.keys(nodeData.barn).length === 0;
+        let editHtml = erLavesteMappe ? `<div class="tree-edit-btn" title="Rediger alle objekter i denne mappen">✏️</div>` : '';
+
+        headerDiv.innerHTML = `<div class="tree-arrow">▶</div><div class="tree-title" title="${safeNøkkel}">${safeNøkkel}</div><div class="tree-count">${totaltAntall} obj</div>${editHtml}`;
         const childrenDiv = document.createElement('div'); childrenDiv.className = 'tree-children';
         const alleIdsForMarkering = formaterForMarkering(hentAlleIds(nodeData));
+        
         headerDiv.onclick = async (e) => {
             e.stopPropagation();
             const isOpen = childrenDiv.style.display === 'block'; childrenDiv.style.display = isOpen ? 'none' : 'block';
             headerDiv.querySelector('.tree-arrow').innerText = isOpen ? '▼' : '▶';
             try { if (API.viewer.setSelection && alleIdsForMarkering.length > 0) { await API.viewer.setSelection({ modelObjectIds: alleIdsForMarkering }, 'set'); } } catch(err) {}
         };
+
+        if (erLavesteMappe) {
+            const editBtn = headerDiv.querySelector('.tree-edit-btn');
+            if(editBtn) editBtn.onclick = (e) => { e.stopPropagation(); openModalForFolder(nøkkel, nodeData); };
+        }
+
         if (Object.keys(nodeData.barn).length > 0) { tegnOppTre(nodeData.barn, childrenDiv, false); }
+        
         if (nodeData.objekter.length > 0) {
             nodeData.objekter.sort((a, b) => a.navn.localeCompare(b.navn)).forEach(obj => {
-                const objDiv = document.createElement('div'); objDiv.className = 'tree-object'; objDiv.innerText = obj.navn; objDiv.title = obj.navn;
+                const objDiv = document.createElement('div'); objDiv.className = 'tree-object'; 
+                objDiv.innerHTML = `<div style="flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${obj.navn}">${obj.navn}</div><div class="tree-edit-btn" title="Rediger dette spesifikke objektet">✏️</div>`;
+                
                 objDiv.onclick = async (e) => { e.stopPropagation(); try { if (API.viewer.setSelection) { await API.viewer.setSelection({ modelObjectIds: [{ modelId: obj.modelId, objectRuntimeIds: [Number(obj.runtimeId)] }] }, 'set'); } } catch(err) {} };
+                
+                const objEditBtn = objDiv.querySelector('.tree-edit-btn');
+                objEditBtn.onclick = (e) => { e.stopPropagation(); openModalForObject(obj); };
+                
                 childrenDiv.appendChild(objDiv);
             });
         }
