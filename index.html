@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v2.0</title>
+  <title>RDS Universal Editor v2.1</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -39,7 +39,7 @@
 
     header {
       background: var(--surface); border-bottom: 1px solid var(--border);
-      padding: 10px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; flex-wrap: wrap; 
+      padding: 10px 16px; display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; 
     }
 
     .header-title { flex: 1; min-width: 150px; }
@@ -49,7 +49,7 @@
 
     .badge { font-family: var(--mono); font-size: 10px; padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
 
-    .btn { font-family: var(--sans); font-size: 12px; font-weight: 700; padding: 7px 12px; border-radius: 6px; border: none; cursor: pointer; transition: opacity .15s, transform .1s; white-space: nowrap; }
+    .btn { font-family: var(--sans); font-size: 11px; font-weight: 700; padding: 7px 10px; border-radius: 6px; border: none; cursor: pointer; transition: opacity .15s, transform .1s; white-space: nowrap; }
     .btn:disabled { opacity: .4; cursor: not-allowed; }
     .btn:not(:disabled):hover { opacity: .85; }
     .btn:not(:disabled):active { transform: scale(.97); }
@@ -57,7 +57,7 @@
     .btn-primary { background: var(--blue); color: #ffffff; }
     .btn-success { background: var(--green); color: #ffffff; }
     .btn-danger { background: var(--surface2); color: var(--red); border: 1px solid var(--border); }
-    .btn-debug { background: #fef08a; color: #854d0e; border: 1px solid #eab308; }
+    .btn-debug { background: #fef08a; color: #854d0e; border: 1px solid #eab308; padding: 7px 8px;}
 
     #editPanel { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
     .input-field { font-family: var(--mono); font-size: 12px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; width: 140px; }
@@ -131,16 +131,18 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v2.0</span></h1>
-    <p>Total Brute-Force skanning (Omgår hierarkiet)</p>
+    <h1>RDS Universal Editor <span class="version">v2.1</span></h1>
+    <p>Inkluderer 100% skanning via 3D-markering</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
-  <button class="btn btn-primary" id="scanBtn" disabled>▶ Bygg RDS-tre</button>
+  
+  <button class="btn btn-primary" id="scanBtn" disabled>▶ Bygg alt</button>
+  <button class="btn btn-primary" id="scanSelBtn" disabled title="Bruk Ctrl+A i 3D-modellen først!">▶ Bygg fra markering</button>
 </header>
 
 <div id="editPanel">
   <input type="text" id="newRunningNumber" class="input-field" placeholder="Nytt løp.nr (eks: 04)">
-  <button class="btn btn-primary" id="queueBtn" disabled>➕ Hurtigoppdater (Markert i 3D)</button>
+  <button class="btn btn-primary" id="queueBtn" disabled>➕ Hurtigoppdater</button>
   <div style="flex-grow: 1;"></div>
   <button class="btn btn-debug" id="debugBtn" title="Feilsøk hvorfor markert objekt ikke vises i treet" disabled>🐞</button>
   <button class="btn btn-danger" id="clearBtn" disabled>Tøm</button>
@@ -150,7 +152,7 @@
 <div id="statusBar">Kobler til Trimble Connect...</div>
 
 <main id="mainContent">
-  <div class="empty anim">Klikk på "Bygg RDS-tre" for å skanne modellene.</div>
+  <div class="empty anim">Klikk på "Bygg alt" eller "Bygg fra markering".</div>
 </main>
 
 <div id="editModal" class="modal-overlay" style="display:none;">
@@ -197,6 +199,7 @@ async function connect(){
   try {
     API = await window.TrimbleConnectWorkspace.connect(window.parent);
     $('scanBtn').disabled = false;
+    $('scanSelBtn').disabled = false;
     $('queueBtn').disabled = false;
     $('debugBtn').disabled = false;
     $('modelBadge').textContent = 'Tilkoblet';
@@ -214,50 +217,6 @@ function slaaSammen(props, nøkkel1, nøkkel2) {
     if (val2) return val2;
     return "Udefinert";
 }
-
-// -----------------------------------------------------
-// DEBUGGER
-// -----------------------------------------------------
-$('debugBtn').addEventListener('click', async () => {
-    try {
-        setStatus('⏳ Feilsøker markert objekt...');
-        const selection = await API.viewer.getSelection();
-        if (!selection || selection.length === 0 || !selection[0].objectRuntimeIds || selection[0].objectRuntimeIds.length === 0) {
-            alert("Feil: Du må markere ett objekt i 3D-modellen først!");
-            setStatus('⚠️ Ingenting markert.', 'warn');
-            return;
-        }
-        const mid = selection[0].modelId;
-        const rIds = selection[0].objectRuntimeIds;
-        const propsArr = await API.viewer.getObjectProperties(mid, rIds);
-        
-        console.log("🐞 RÅDATA FOR MARKERT OBJEKT:", propsArr);
-        
-        let debugMsg = "--- FEILSØKINGSRAPPORT ---\n(Sjekk F12 Console for rådata)\n\n";
-        propsArr.forEach(obj => {
-            let foundNames = [];
-            (obj.properties || []).forEach(pset => {
-                (pset.properties || []).forEach(p => {
-                    const nameLower = p.name.trim().toLowerCase();
-                    if (nameLower.includes("rds") || nameLower.match(/^\d{2}\./)) {
-                        foundNames.push(`"${p.name}": "${p.value}"`);
-                    }
-                });
-            });
-            if (foundNames.length === 0) {
-                debugMsg += `❌ Objekt ID ${obj.id || obj.objectRuntimeId || 'Ukjent'}: Finner ingen RDS-egenskaper.\n\n`;
-            } else {
-                debugMsg += `✅ Objekt ID ${obj.id || obj.objectRuntimeId || 'Ukjent'} HAR egenskaper:\n${foundNames.join('\n')}\n\n`;
-            }
-        });
-        alert(debugMsg);
-        setStatus('✅ Feilsøking utført.', 'ok');
-    } catch (e) {
-        alert("Klarte ikke feilsøke: " + e.message);
-        setStatus('❌ Feil under feilsøking.', 'error');
-    }
-});
-
 
 function updateEditedIndicators() {
     const queuedIds = new Set(EXPORT_QUEUE.map(q => `${q.modelId}_${q.runtimeId}`));
@@ -290,161 +249,212 @@ function updateEditedIndicators() {
 }
 
 // -----------------------------------------------------
-// BRUTE FORCE SKANNER V2.0
+// HOVEDMOTOR: BYGG TRE (All eller Markering)
 // -----------------------------------------------------
-$('scanBtn').addEventListener('click', async () => {
-  if (!API) return;
-  $('scanBtn').disabled = true;
-  $('mainContent').innerHTML = '';
-  activeTreeElement = null;
-  
-  try {
-    setStatus('⏳ Analyserer modellstørrelse...');
-    const models = await API.viewer.getObjects();
-    if (!models || models.length === 0) {
-      setStatus('⚠️ Fant ingen objekter i vieweren.', 'warn');
-      $('scanBtn').disabled = false;
-      return;
-    }
+async function kjorSkanner(mode) {
+    if (!API) return;
+    $('scanBtn').disabled = true;
+    $('scanSelBtn').disabled = true;
+    $('mainContent').innerHTML = '';
+    activeTreeElement = null;
 
-    const CHUNK = 500;
-    let totalObjects = 0;
-    let rdsTree = {}; 
+    try {
+        let targetMap = {}; // { modelId: [id1, id2...] }
 
-    for (const model of models) {
-      const mid = model.modelId || model.modelid;
-      
-      // Finner høyeste ID i den synlige strukturen for å ha et startpunkt
-      let maxKnownId = 1000;
-      function findMaxId(objList) {
-          if(!objList) return;
-          for(const o of objList) {
-              const rId = o.id || o.objectRuntimeId;
-              if(rId && rId > maxKnownId) maxKnownId = rId;
-              if(o.children) findMaxId(o.children);
-              if(o.parts) findMaxId(o.parts);
-              if(o.instances) findMaxId(o.instances);
-          }
-      }
-      findMaxId(model.objects);
-      
-      // Brute Force: Vi skanner 10.000 IDer FORBI det vi tror er maks, i tilfelle skjulte objekter!
-      const MAX_SEARCH_ID = maxKnownId + 10000; 
-      let currentId = 1;
-      let emptyStreaks = 0;
+        if (mode === 'all') {
+            setStatus('⏳ Henter modellstruktur...');
+            const models = await API.viewer.getObjects();
+            if (!models || models.length === 0) {
+                setStatus('⚠️ Fant ingen objekter i vieweren.', 'warn');
+                $('scanBtn').disabled = false; $('scanSelBtn').disabled = false;
+                return;
+            }
+            
+            for (const model of models) {
+                const mid = model.modelId || model.modelid;
+                let ids = [];
+                const seen = new Set();
+                
+                function pakkUt(list) {
+                    if (!list) return;
+                    for (const o of list) {
+                        const rId = o.id || o.objectRuntimeId;
+                        if (rId != null && !seen.has(rId)) { ids.push(rId); seen.add(rId); }
+                        if (o.children) pakkUt(o.children);
+                        if (o.parts) pakkUt(o.parts);
+                        if (o.instances) pakkUt(o.instances);
+                    }
+                }
+                pakkUt(model.objects);
+                if (ids.length > 0) targetMap[mid] = ids;
+            }
+        } else {
+            setStatus('⏳ Henter objekter fra din markering i 3D...');
+            const selection = await API.viewer.getSelection();
+            if (!selection || selection.length === 0) {
+                alert("Du må markere objektene i 3D-modellen først (Tips: Bruk Ctrl+A for å velge alt).");
+                setStatus('⚠️ Ingenting er markert.', 'warn');
+                $('scanBtn').disabled = false; $('scanSelBtn').disabled = false;
+                return;
+            }
+            for (const sel of selection) {
+                if (sel.objectRuntimeIds && sel.objectRuntimeIds.length > 0) {
+                    targetMap[sel.modelId] = sel.objectRuntimeIds;
+                }
+            }
+        }
 
-      while (currentId <= MAX_SEARCH_ID && emptyStreaks < 5) {
-          let chunk = [];
-          for (let i = 0; i < CHUNK; i++) {
-              chunk.push(currentId++);
-          }
-          
-          setStatus(`⏳ Dyp-skanner ID ${chunk[0]} til ${chunk[chunk.length-1]}... (Fant ${totalObjects} RDS-objekter)`);
-          
-          try {
-              const propsArr = await API.viewer.getObjectProperties(mid, chunk);
-              
-              if (!propsArr || propsArr.length === 0) {
-                  emptyStreaks++; // Teller tomme runder for å stoppe når vi er på "bunnen"
-                  continue;
-              }
-              
-              emptyStreaks = 0; // Vi traff noe, nullstill streak
-              
-              propsArr.forEach(obj => {
-                  let globalId = "UKJENT_GUID";
-                  if (obj.externalId) globalId = obj.externalId;
-                  else if (obj.globalId) globalId = obj.globalId;
-                  else if (obj.ifcGuid) globalId = obj.ifcGuid;
+        const CHUNK = 200;
+        let totalObjects = 0;
+        let rdsTree = {}; 
 
-                  const flatProps = {};
-                  const groupedProps = {}; 
-                  let hasAnyProp = false;
+        for (const mid in targetMap) {
+            const objectIds = targetMap[mid];
+            
+            for (let i = 0; i < objectIds.length; i += CHUNK) {
+                const chunk = objectIds.slice(i, i + CHUNK);
+                setStatus(`⏳ Analyserer egenskaper og bygger tre... (${totalObjects + i} objekter skannet)`);
+                const propsArr = await API.viewer.getObjectProperties(mid, chunk);
+                
+                propsArr.forEach((obj, index) => {
+                    // DEN VIKTIGSTE LINJEN: Låner ID fra chunk dersom Trimble Connect "glemmer" den!
+                    const actualRuntimeId = obj.id || obj.objectRuntimeId || chunk[index];
+                    
+                    let globalId = "UKJENT_GUID";
+                    if (obj.externalId) globalId = obj.externalId;
+                    else if (obj.globalId) globalId = obj.globalId;
+                    else if (obj.ifcGuid) globalId = obj.ifcGuid;
 
-                  (obj.properties || []).forEach(pset => {
-                     if (!pset.name) return;
-                     const psetName = pset.name.trim();
-                     const psetNameLower = psetName.toLowerCase();
-                     const isSystem = psetNameLower.startsWith('ifc') || SYSTEM_PSETS.includes(psetNameLower);
+                    const flatProps = {};
+                    const groupedProps = {}; 
 
-                     (pset.properties || []).forEach(p => {
-                       if (p.name) {
-                           hasAnyProp = true;
-                           const nameLower = p.name.trim().toLowerCase();
-                           const valStr = p.value !== undefined && p.value !== null ? String(p.value).trim() : "";
-                           
-                           if (valStr !== "") {
-                               flatProps[nameLower] = valStr;
-                               if (!isSystem) {
-                                   if (!groupedProps[psetName]) groupedProps[psetName] = {};
-                                   groupedProps[psetName][p.name.trim()] = valStr;
-                               }
-                           }
-                           
-                           if (nameLower.includes("guid") || nameLower.includes("globalid") || nameLower === "objid") {
-                               if (nameLower.includes("ifc") || nameLower === "globalid" || nameLower === "objid") {
-                                   globalId = valStr;
-                               } else if (globalId === "UKJENT_GUID") {
-                                   globalId = valStr;
-                               }
-                           }
-                       }
+                    (obj.properties || []).forEach(pset => {
+                        if (!pset.name) return;
+                        const psetName = pset.name.trim();
+                        const psetNameLower = psetName.toLowerCase();
+                        const isSystem = psetNameLower.startsWith('ifc') || SYSTEM_PSETS.includes(psetNameLower);
+
+                        (pset.properties || []).forEach(p => {
+                            if (p.name) {
+                                const nameLower = p.name.trim().toLowerCase();
+                                const valStr = p.value !== undefined && p.value !== null ? String(p.value).trim() : "";
+                                
+                                if (valStr !== "") {
+                                    flatProps[nameLower] = valStr;
+                                    if (!isSystem) {
+                                        if (!groupedProps[psetName]) groupedProps[psetName] = {};
+                                        groupedProps[psetName][p.name.trim()] = valStr;
+                                    }
+                                }
+                                
+                                if (nameLower.includes("guid") || nameLower.includes("globalid") || nameLower === "objid") {
+                                    if (nameLower.includes("ifc") || nameLower === "globalid" || nameLower === "objid") {
+                                        globalId = valStr;
+                                    } else if (globalId === "UKJENT_GUID") {
+                                        globalId = valStr;
+                                    }
+                                }
+                            }
+                        });
                     });
-                  });
 
-                  if (!hasAnyProp) return; 
+                    const nivå1 = flatProps["02. aaaaaa"] || "Udefinert 02. AAAAAA";
+                    const nivå2 = slaaSammen(flatProps, "03. bnn", "04. bnn navn");
+                    const nivå3 = slaaSammen(flatProps, "05. cnn", "06. cnn navn");
+                    const nivå4 = slaaSammen(flatProps, "07. dnn", "08. dnn navn");
+                    const nivå5 = slaaSammen(flatProps, "09. eennn", "10. eennn navn");
+                    const nivå6 = slaaSammen(flatProps, "11. fffnnn", "12. fffnnn navn");
+                    const nivå7 = slaaSammen(flatProps, "13. gggnnn", "14. gggnnn navn");
+                    const nivå8 = slaaSammen(flatProps, "15. hhhnnnnn", "16. hhhnnnnn navn");
+                    const nivå9 = flatProps["01. rds-tag"] || "Udefinert 01. RDS-tag";
+                    
+                    let objektNavn = flatProps["a006_objektnavn"] || flatProps["objekttype"] || obj.name || `Objekt ${actualRuntimeId}`;
 
-                  const nivå1 = flatProps["02. aaaaaa"] || "Udefinert 02. AAAAAA";
-                  const nivå2 = slaaSammen(flatProps, "03. bnn", "04. bnn navn");
-                  const nivå3 = slaaSammen(flatProps, "05. cnn", "06. cnn navn");
-                  const nivå4 = slaaSammen(flatProps, "07. dnn", "08. dnn navn");
-                  const nivå5 = slaaSammen(flatProps, "09. eennn", "10. eennn navn");
-                  const nivå6 = slaaSammen(flatProps, "11. fffnnn", "12. fffnnn navn");
-                  const nivå7 = slaaSammen(flatProps, "13. gggnnn", "14. gggnnn navn");
-                  const nivå8 = slaaSammen(flatProps, "15. hhhnnnnn", "16. hhhnnnnn navn");
-                  const nivå9 = flatProps["01. rds-tag"] || "Udefinert 01. RDS-tag";
-                  
-                  let objektNavn = flatProps["a006_objektnavn"] || flatProps["objekttype"] || obj.name || `Objekt ${obj.id || 'Skjult ID'}`;
+                    const harRDS = [nivå1, nivå2, nivå3, nivå4, nivå5, nivå6, nivå7, nivå8, nivå9].some(val => !val.includes("Udefinert"));
+                    if (!harRDS) return; 
 
-                  const harRDS = [nivå1, nivå2, nivå3, nivå4, nivå5, nivå6, nivå7, nivå8, nivå9].some(val => !val.includes("Udefinert"));
-                  if (!harRDS) return; 
+                    const sti = [nivå1, nivå2, nivå3, nivå4, nivå5, nivå6, nivå7, nivå8, nivå9];
+                    let gjeldendeNivå = rdsTree;
+                    
+                    sti.forEach((nodensNavn, indeks) => {
+                        if (!gjeldendeNivå[nodensNavn]) { gjeldendeNivå[nodensNavn] = { barn: {}, objekter: [] }; }
+                        if (indeks === sti.length - 1) {
+                            gjeldendeNivå[nodensNavn].objekter.push({ 
+                                navn: objektNavn, 
+                                modelId: mid, 
+                                runtimeId: actualRuntimeId,
+                                guid: globalId,
+                                flatProps: flatProps,
+                                groupedProps: groupedProps 
+                            });
+                        }
+                        gjeldendeNivå = gjeldendeNivå[nodensNavn].barn;
+                    });
+                });
+                totalObjects += chunk.length;
+            }
+        }
 
-                  totalObjects++;
+        tegnOppTre(rdsTree, $('mainContent'));
+        updateEditedIndicators();
+        setStatus(`✅ Skanning fullført. Fant ${totalObjects} gyldige objekter.`, 'ok');
+        $('scanBtn').disabled = false;
+        $('scanSelBtn').disabled = false;
 
-                  const sti = [nivå1, nivå2, nivå3, nivå4, nivå5, nivå6, nivå7, nivå8, nivå9];
-                  let gjeldendeNivå = rdsTree;
-                  
-                  sti.forEach((nodensNavn, indeks) => {
-                      if (!gjeldendeNivå[nodensNavn]) { gjeldendeNivå[nodensNavn] = { barn: {}, objekter: [] }; }
-                      if (indeks === sti.length - 1) {
-                          gjeldendeNivå[nodensNavn].objekter.push({ 
-                              navn: objektNavn, 
-                              modelId: mid, 
-                              runtimeId: obj.id || obj.objectRuntimeId || null, 
-                              guid: globalId,
-                              flatProps: flatProps,
-                              groupedProps: groupedProps 
-                          });
-                      }
-                      gjeldendeNivå = gjeldendeNivå[nodensNavn].barn;
-                  });
-              });
-          } catch (chunkError) {
-              console.warn("Feil ved chunk", chunk[0], chunkError);
-          }
-      }
+    } catch (error) {
+        setStatus(`❌ Feil under skanning: ${error.message}`, 'error');
+        $('scanBtn').disabled = false;
+        $('scanSelBtn').disabled = false;
     }
+}
 
-    tegnOppTre(rdsTree, $('mainContent'));
-    updateEditedIndicators();
-    setStatus(`✅ Skan ferdig! Fant totalt ${totalObjects} RDS-objekter via Brute-Force.`, 'ok');
-    $('scanBtn').disabled = false;
+$('scanBtn').addEventListener('click', () => kjorSkanner('all'));
+$('scanSelBtn').addEventListener('click', () => kjorSkanner('selection'));
 
-  } catch (error) {
-    setStatus(`❌ Feil under skanning: ${error.message}`, 'error');
-    $('scanBtn').disabled = false;
-  }
+// -----------------------------------------------------
+// DEBUGGER
+// -----------------------------------------------------
+$('debugBtn').addEventListener('click', async () => {
+    try {
+        setStatus('⏳ Feilsøker markert objekt...');
+        const selection = await API.viewer.getSelection();
+        if (!selection || selection.length === 0 || !selection[0].objectRuntimeIds || selection[0].objectRuntimeIds.length === 0) {
+            alert("Feil: Du må markere ett objekt i 3D-modellen først!");
+            setStatus('⚠️ Ingenting markert.', 'warn');
+            return;
+        }
+        const mid = selection[0].modelId;
+        const rIds = selection[0].objectRuntimeIds;
+        const propsArr = await API.viewer.getObjectProperties(mid, rIds);
+        
+        console.log("🐞 RÅDATA FOR MARKERT OBJEKT:", propsArr);
+        
+        let debugMsg = "--- FEILSØKINGSRAPPORT ---\n(Sjekk F12 Console for rådata)\n\n";
+        propsArr.forEach((obj, idx) => {
+            let foundNames = [];
+            (obj.properties || []).forEach(pset => {
+                (pset.properties || []).forEach(p => {
+                    const nameLower = p.name.trim().toLowerCase();
+                    if (nameLower.includes("rds") || nameLower.match(/^\d{2}\./)) {
+                        foundNames.push(`"${p.name}": "${p.value}"`);
+                    }
+                });
+            });
+            const displayId = obj.id || obj.objectRuntimeId || rIds[idx] + " (Gjenopprettet)";
+            if (foundNames.length === 0) {
+                debugMsg += `❌ Objekt ID ${displayId}: Finner ingen RDS-egenskaper.\n\n`;
+            } else {
+                debugMsg += `✅ Objekt ID ${displayId} HAR egenskaper:\n${foundNames.join('\n')}\n\n`;
+            }
+        });
+        alert(debugMsg);
+        setStatus('✅ Feilsøking utført.', 'ok');
+    } catch (e) {
+        alert("Klarte ikke feilsøke: " + e.message);
+        setStatus('❌ Feil under feilsøking.', 'error');
+    }
 });
+
 
 function oppdaterUI() {
     const antall = EXPORT_QUEUE.length;
@@ -476,9 +486,9 @@ $('queueBtn').addEventListener('click', async () => {
             const runtimeIds = sel.objectRuntimeIds; 
             if (!runtimeIds || runtimeIds.length === 0) continue;
             const propsArr = await API.viewer.getObjectProperties(mid, runtimeIds);
-            propsArr.forEach(obj => {
+            propsArr.forEach((obj, idx) => {
                 let globalId = "UKJENT_GUID";
-                const objRuntimeId = obj.id || obj.objectRuntimeId;
+                const objRuntimeId = obj.id || obj.objectRuntimeId || runtimeIds[idx];
                 const flatProps = {}; 
                 
                 if (obj.properties) {
@@ -674,7 +684,7 @@ function formaterForMarkering(idMap) { return Object.keys(idMap).map(mid => ({ m
 
 function tegnOppTre(treStruktur, container, erRot = true) {
     const nøkler = Object.keys(treStruktur).sort();
-    if (nøkler.length === 0 && erRot) { container.innerHTML = '<div class="empty anim">Fant ingen objekter med RDS-egenskaper.</div>'; return; }
+    if (nøkler.length === 0 && erRot) { container.innerHTML = '<div class="empty anim">Fant ingen objekter med RDS-egenskaper i denne skanningen.</div>'; return; }
     const wrapper = document.createElement('div');
     if (erRot) { wrapper.className = 'tree-container anim'; container.appendChild(wrapper); }
     
