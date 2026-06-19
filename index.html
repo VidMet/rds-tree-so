@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.0</title>
+  <title>RDS Universal Editor v3.1</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -96,7 +96,6 @@
     .tree-edit-btn:hover { opacity: 1; background: var(--surface2); border-color: var(--border); }
     .tree-edit-btn.is-edited { opacity: 1; background: var(--red-dim); color: var(--red); border-color: var(--red); font-weight: bold; }
 
-    /* NYTT: FARGE-FIRKANTEN I TREET */
     .color-indicator {
         display: none;
         width: 10px;
@@ -138,8 +137,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v3.0</span></h1>
-    <p>Visuell fargesynkronisering i tre-strukturen</p>
+    <h1>RDS Universal Editor <span class="version">v3.1</span></h1>
+    <p>Inkluderer Ghosting (50% transparens) på manglende RDS</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -186,7 +185,7 @@ let EXPORT_QUEUE = [];
 let currentEditTargets = []; 
 let lastClickedElement = null; 
 let GLOBAL_RDS_TREE = {}; 
-window.assignedColorsMap = new Map(); // Husker fargene for treet
+window.assignedColorsMap = new Map(); 
 
 const LOPENUMMER_EGENSKAPER = [
     "01. rds-tag", 
@@ -209,12 +208,18 @@ const PALETTE = [
     {r:0,   g:0,   b:128, a:255}, {r:128, g:128, b:128, a:255} 
 ];
 
+const UTEN_RDS_MAPPE_NAVN = "[Objekter uten RDS]";
+
 const $ = id => document.getElementById(id);
 const setStatus = (m, c='') => { $('statusBar').textContent = m; $('statusBar').className = c; };
 
 function escapeHTML(str) {
   if (!str) return '';
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
+
+function naturligSortering(a, b) {
+    return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
 }
 
 async function connect(){
@@ -269,7 +274,6 @@ function updateEditedIndicators() {
     });
 }
 
-// NY FUNKSJON: Oppdaterer fargefirkantene i treet
 function updateColorIndicatorsUI() {
     document.querySelectorAll('.tree-object').forEach(row => {
         const id = row.getAttribute('data-id');
@@ -392,6 +396,7 @@ async function kjorSkanner(mode) {
 
         const CHUNK = 200;
         let totalObjects = 0;
+        let manglerRDSCount = 0;
 
         for (const mid in targetMap) {
             const objectIds = targetMap[mid];
@@ -455,7 +460,22 @@ async function kjorSkanner(mode) {
                     let objektNavn = flatProps["a006_objektnavn"] || flatProps["objekttype"] || obj.name || `Objekt ${actualRuntimeId}`;
 
                     const harRDS = [nivå1, nivå2, nivå3, nivå4, nivå5, nivå6, nivå7, nivå8, nivå9].some(val => !val.includes("Udefinert"));
-                    if (!harRDS) return; 
+                    
+                    if (!harRDS) {
+                        manglerRDSCount++;
+                        if (!GLOBAL_RDS_TREE[UTEN_RDS_MAPPE_NAVN]) { 
+                            GLOBAL_RDS_TREE[UTEN_RDS_MAPPE_NAVN] = { barn: {}, objekter: [] }; 
+                        }
+                        GLOBAL_RDS_TREE[UTEN_RDS_MAPPE_NAVN].objekter.push({ 
+                            navn: objektNavn, 
+                            modelId: mid, 
+                            runtimeId: actualRuntimeId,
+                            guid: globalId,
+                            flatProps: flatProps,
+                            groupedProps: groupedProps 
+                        });
+                        return; // Hopper over standard tre-bygging for dette objektet
+                    } 
 
                     const sti = [nivå1, nivå2, nivå3, nivå4, nivå5, nivå6, nivå7, nivå8, nivå9];
                     let gjeldendeNivå = GLOBAL_RDS_TREE;
@@ -481,9 +501,9 @@ async function kjorSkanner(mode) {
 
         tegnOppTre(GLOBAL_RDS_TREE, $('mainContent'));
         updateEditedIndicators();
-        updateColorIndicatorsUI(); // Sørger for at fargene består hvis de lå i minnet
+        updateColorIndicatorsUI(); 
         
-        setStatus(`✅ Skanning fullført. Fant ${totalObjects} gyldige objekter.`, 'ok');
+        setStatus(`✅ Skanning fullført. Fant ${totalObjects - manglerRDSCount} med RDS, ${manglerRDSCount} mangler RDS.`, 'ok');
         $('scanBtn').disabled = false;
         $('scanSelBtn').disabled = false;
         if(totalObjects > 0) $('colorBtn').disabled = false;
@@ -499,15 +519,15 @@ $('scanBtn').addEventListener('click', () => kjorSkanner('all'));
 $('scanSelBtn').addEventListener('click', () => kjorSkanner('selection'));
 
 // -----------------------------------------------------
-// FARGELEGGINGS-MOTOR MED TRE-OPPDATERING
+// FARGELEGGINGS-MOTOR MED GHOSTING (TRANSPARENS)
 // -----------------------------------------------------
 $('colorBtn').addEventListener('click', async () => {
     if (!API) return;
     try {
         setStatus('⏳ Beregner fargekart...', '');
         const colorPayloads = new Map();
+        const ghostPayloadIds = {}; // Spesial-liste for objekter uten RDS
         
-        // Nullstill UI-kartet for nye farger
         window.assignedColorsMap = new Map();
 
         try { 
@@ -516,6 +536,19 @@ $('colorBtn').addEventListener('click', async () => {
 
         function collectColors(levelDict, depth, currentTracker) {
             for (const [key, nodeData] of Object.entries(levelDict)) {
+                
+                // SPESIALHÅNDTERING: GHOST-MAPPEN
+                if (key === UTEN_RDS_MAPPE_NAVN) {
+                    nodeData.objekter.forEach(obj => {
+                        if (obj.runtimeId != null) {
+                            window.assignedColorsMap.set(`${obj.modelId}_${obj.runtimeId}`, 'rgba(128, 128, 128, 0.5)');
+                            if (!ghostPayloadIds[obj.modelId]) ghostPayloadIds[obj.modelId] = [];
+                            ghostPayloadIds[obj.modelId].push(Number(obj.runtimeId));
+                        }
+                    });
+                    continue; // Hopper over vanlig palett-farging for denne mappen
+                }
+
                 let nextTracker = currentTracker;
 
                 // Nivå 3: Cnn (Nullstill paletten!) - indeks 2
@@ -544,7 +577,6 @@ $('colorBtn').addEventListener('click', async () => {
 
                     nodeData.objekter.forEach(obj => {
                         if (obj.runtimeId != null) {
-                            // Lagrer fargen i minnet for treet
                             window.assignedColorsMap.set(`${obj.modelId}_${obj.runtimeId}`, rgbStr);
                             
                             if (!cMap[obj.modelId]) cMap[obj.modelId] = [];
@@ -563,6 +595,7 @@ $('colorBtn').addEventListener('click', async () => {
 
         collectColors(GLOBAL_RDS_TREE, 0, null);
 
+        // Fargelegg standard objekter
         for (const [colIdx, modelMap] of colorPayloads.entries()) {
             const modelObjectIds = [];
             for (const [mid, ids] of Object.entries(modelMap)) {
@@ -577,7 +610,20 @@ $('colorBtn').addEventListener('click', async () => {
             }
         }
 
-        updateColorIndicatorsUI(); // Sender fargene ut i grensesnittet
+        // Fargelegg Ghost-objekter (Grå + Alpha 127 = ca 50% transparens)
+        const ghostObjectsList = [];
+        for (const [mid, ids] of Object.entries(ghostPayloadIds)) {
+            ghostObjectsList.push({ modelId: mid, objectRuntimeIds: ids });
+        }
+        
+        if (ghostObjectsList.length > 0 && API.viewer.setObjectState) {
+             await API.viewer.setObjectState(
+                 { modelObjectIds: ghostObjectsList },
+                 { color: { r: 128, g: 128, b: 128, a: 127 } } 
+             );
+        }
+
+        updateColorIndicatorsUI(); 
         $('resetColorBtn').style.display = 'inline-block';
         setStatus('✅ Fargelegging fullført!', 'ok');
         
@@ -593,8 +639,8 @@ $('resetColorBtn').addEventListener('click', async () => {
             await API.viewer.setObjectState(undefined, { color: 'reset' });
         }
         
-        window.assignedColorsMap = new Map(); // Sletter fargene fra minnet
-        updateColorIndicatorsUI(); // Skjuler firkantene
+        window.assignedColorsMap = new Map();
+        updateColorIndicatorsUI(); 
         
         $('resetColorBtn').style.display = 'none';
         setStatus('💧 Farger nullstilt til standard.', 'ok');
@@ -701,14 +747,14 @@ function openModalForObject(obj) {
     $('modalWarning').style.display = 'none';
     
     let html = '';
-    const psetKeys = Object.keys(obj.groupedProps).sort();
+    const psetKeys = Object.keys(obj.groupedProps).sort(naturligSortering);
     
     psetKeys.forEach(psetName => {
         html += `<details class="pset-group" open>
                     <summary class="pset-summary">${escapeHTML(psetName)}</summary>
                     <div class="pset-content">`;
         
-        const propKeys = Object.keys(obj.groupedProps[psetName]).sort();
+        const propKeys = Object.keys(obj.groupedProps[psetName]).sort(naturligSortering);
         propKeys.forEach(prop => {
             const val = obj.groupedProps[psetName][prop];
             html += `<div class="modal-form-group">
@@ -741,12 +787,12 @@ function openModalForFolder(nodeName, nodeData) {
     });
 
     let html = '';
-    Object.keys(allGroupedKeys).sort().forEach(psetName => {
+    Object.keys(allGroupedKeys).sort(naturligSortering).forEach(psetName => {
         html += `<details class="pset-group" open>
                     <summary class="pset-summary">${escapeHTML(psetName)}</summary>
                     <div class="pset-content">`;
         
-        Array.from(allGroupedKeys[psetName]).sort().forEach(prop => {
+        Array.from(allGroupedKeys[psetName]).sort(naturligSortering).forEach(prop => {
             let firstVal = undefined;
             let firstValFound = false;
             let isSame = true;
@@ -848,7 +894,14 @@ function hentAlleIds(nodeMap) {
 function formaterForMarkering(idMap) { return Object.keys(idMap).map(mid => ({ modelId: mid, objectRuntimeIds: idMap[mid] })); }
 
 function tegnOppTre(treStruktur, container, erRot = true) {
-    const nøkler = Object.keys(treStruktur).sort();
+    let nøkler = Object.keys(treStruktur).sort(naturligSortering);
+    
+    // SIKRER AT MAPPEN "UTEN RDS" ALLTID LIGGER HELT NEDERST
+    if (erRot && nøkler.includes(UTEN_RDS_MAPPE_NAVN)) {
+        nøkler = nøkler.filter(k => k !== UTEN_RDS_MAPPE_NAVN);
+        nøkler.push(UTEN_RDS_MAPPE_NAVN);
+    }
+
     if (nøkler.length === 0 && erRot) { container.innerHTML = '<div class="empty anim">Fant ingen objekter med RDS-egenskaper.</div>'; return; }
     const wrapper = document.createElement('div');
     if (erRot) { wrapper.className = 'tree-container anim'; container.appendChild(wrapper); }
@@ -863,22 +916,14 @@ function tegnOppTre(treStruktur, container, erRot = true) {
         const safeNøkkel = escapeHTML(nøkkel);
         
         const erLavesteMappe = Object.keys(nodeData.barn).length === 0;
-        
-        const allIdsMap = hentAlleIds(nodeData);
-        let allIdsFlat = [];
-        for (const mid in allIdsMap) {
-            allIdsMap[mid].forEach(rid => allIdsFlat.push(`${mid}_${rid}`));
-        }
-        const idsString = allIdsFlat.join(',');
-        
-        headerDiv.setAttribute('data-folder-ids', idsString);
-        let editHtml = erLavesteMappe ? `<div class="tree-edit-btn" title="Endre egenskaper for alle objekter i mappen">✏️</div>` : '';
+        const alleIds = nodeData.objekter.map(o => `${o.modelId}_${o.runtimeId}`).join(',');
+        let editHtml = erLavesteMappe ? `<div class="tree-edit-btn" data-folder-ids="${alleIds}" title="Endre egenskaper for alle objekter i mappen">✏️</div>` : '';
 
-        // Lagt inn color-indicator i mappen!
+        headerDiv.setAttribute('data-folder-ids', alleIds);
         headerDiv.innerHTML = `<div class="tree-arrow">▶</div><div class="color-indicator"></div><div class="tree-title" title="${safeNøkkel}">${safeNøkkel}</div><div class="tree-count">${totaltAntall} obj</div>${editHtml}`;
         const childrenDiv = document.createElement('div'); childrenDiv.className = 'tree-children';
         
-        headerDiv._modelObjectIds = formaterForMarkering(allIdsMap);
+        headerDiv._modelObjectIds = formaterForMarkering(hentAlleIds(nodeData));
 
         headerDiv.onclick = async (e) => {
             e.stopPropagation();
@@ -914,11 +959,10 @@ function tegnOppTre(treStruktur, container, erRot = true) {
         if (Object.keys(nodeData.barn).length > 0) { tegnOppTre(nodeData.barn, childrenDiv, false); }
         
         if (nodeData.objekter.length > 0) {
-            nodeData.objekter.sort((a, b) => a.navn.localeCompare(b.navn)).forEach(obj => {
+            nodeData.objekter.sort((a, b) => naturligSortering(a.navn, b.navn)).forEach(obj => {
                 const objDiv = document.createElement('div'); objDiv.className = 'tree-object'; 
                 objDiv.setAttribute('data-id', `${obj.modelId}_${obj.runtimeId}`);
                 
-                // Lagt inn color-indicator i objektet!
                 objDiv.innerHTML = `<div class="color-indicator"></div><div style="flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${obj.navn}">${obj.navn}</div><div class="tree-edit-btn" data-id="${obj.modelId}_${obj.runtimeId}" title="Endre egendefinerte egenskaper">✏️</div>`;
                 
                 objDiv._modelObjectIds = [{ modelId: obj.modelId, objectRuntimeIds: [Number(obj.runtimeId)] }];
