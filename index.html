@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v2.4</title>
+  <title>RDS Universal Editor v2.5</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -58,6 +58,10 @@
     .btn-success { background: var(--green); color: #ffffff; }
     .btn-danger { background: var(--surface2); color: var(--red); border: 1px solid var(--border); }
     .btn-debug { background: #fef08a; color: #854d0e; border: 1px solid #eab308; padding: 7px 8px;}
+    
+    /* Farge-knapper */
+    .btn-color { background: #8b5cf6; color: #ffffff; }
+    .btn-color-reset { background: var(--surface2); color: #8b5cf6; border: 1px solid var(--border); padding: 7px 8px; }
 
     #editPanel { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
     .input-field { font-family: var(--mono); font-size: 12px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; width: 140px; }
@@ -125,8 +129,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v2.4</span></h1>
-    <p>Støtter Multi-Select via Ctrl og Shift</p>
+    <h1>RDS Universal Editor <span class="version">v2.5</span></h1>
+    <p>Inkluderer fargelegging (Visualisering)</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -137,6 +141,10 @@
 <div id="editPanel">
   <input type="text" id="newRunningNumber" class="input-field" placeholder="Nytt løp.nr (eks: 04)">
   <button class="btn btn-primary" id="queueBtn" disabled>➕ Hurtigoppdater</button>
+  
+  <button class="btn btn-color" id="colorBtn" title="Fargelegg GGG-grupperinger" disabled>🎨 Fargelegg (GGG)</button>
+  <button class="btn btn-color-reset" id="resetColorBtn" title="Fjern farger" style="display:none;">💧</button>
+  
   <div style="flex-grow: 1;"></div>
   <button class="btn btn-debug" id="debugBtn" title="Feilsøk hvorfor markert objekt ikke vises i treet" disabled>🐞</button>
   <button class="btn btn-danger" id="clearBtn" disabled>Tøm</button>
@@ -168,7 +176,8 @@
 let API = null;
 let EXPORT_QUEUE = [];
 let currentEditTargets = []; 
-let lastClickedElement = null; // Husker siste rad for Shift-valg
+let lastClickedElement = null; 
+let GLOBAL_RDS_TREE = {}; 
 
 const LOPENUMMER_EGENSKAPER = [
     "01. rds-tag", 
@@ -179,6 +188,17 @@ const LOPENUMMER_EGENSKAPER = [
 const SYSTEM_PSETS = [
     'calculatedgeometryvalues', 'orientedboundingbox', 'reference object', 
     'common', 'quantities', 'trimble', 'ifcslab', 'ifcwall', 'ifcalignment'
+];
+
+// Kellys 20 farger for maksimal kontrast
+const PALETTE = [
+    {r:230, g:25,  b:75,  a:255}, {r:60,  g:180, b:75,  a:255}, {r:255, g:225, b:25,  a:255}, 
+    {r:0,   g:130, b:200, a:255}, {r:245, g:130, b:48,  a:255}, {r:145, g:30,  b:180, a:255}, 
+    {r:70,  g:240, b:240, a:255}, {r:240, g:50,  b:230, a:255}, {r:210, g:245, b:60,  a:255}, 
+    {r:250, g:190, b:212, a:255}, {r:0,   g:128, b:128, a:255}, {r:220, g:190, b:255, a:255}, 
+    {r:170, g:110, b:40,  a:255}, {r:255, g:250, b:200, a:255}, {r:128, g:0,   b:0,   a:255}, 
+    {r:170, g:255, b:195, a:255}, {r:128, g:128, b:0,   a:255}, {r:255, g:215, b:180, a:255}, 
+    {r:0,   g:0,   b:128, a:255}, {r:128, g:128, b:128, a:255} 
 ];
 
 const $ = id => document.getElementById(id);
@@ -242,7 +262,6 @@ function updateEditedIndicators() {
     });
 }
 
-// NY MULTI-SELEKT SYNKRONISERING MOT 3D-VISER
 async function sync3DSelection() {
     const activeElements = document.querySelectorAll('.tree-header.active, .tree-object.active');
     let combinedMap = {}; 
@@ -272,8 +291,10 @@ async function kjorSkanner(mode) {
     if (!API) return;
     $('scanBtn').disabled = true;
     $('scanSelBtn').disabled = true;
+    $('colorBtn').disabled = true;
     $('mainContent').innerHTML = '';
     lastClickedElement = null;
+    GLOBAL_RDS_TREE = {}; // Nullstiller globalt tre
 
     try {
         let targetMap = {}; 
@@ -323,7 +344,6 @@ async function kjorSkanner(mode) {
 
         const CHUNK = 200;
         let totalObjects = 0;
-        let rdsTree = {}; 
 
         for (const mid in targetMap) {
             const objectIds = targetMap[mid];
@@ -390,7 +410,7 @@ async function kjorSkanner(mode) {
                     if (!harRDS) return; 
 
                     const sti = [nivå1, nivå2, nivå3, nivå4, nivå5, nivå6, nivå7, nivå8, nivå9];
-                    let gjeldendeNivå = rdsTree;
+                    let gjeldendeNivå = GLOBAL_RDS_TREE;
                     
                     sti.forEach((nodensNavn, indeks) => {
                         if (!gjeldendeNivå[nodensNavn]) { gjeldendeNivå[nodensNavn] = { barn: {}, objekter: [] }; }
@@ -411,11 +431,12 @@ async function kjorSkanner(mode) {
             }
         }
 
-        tegnOppTre(rdsTree, $('mainContent'));
+        tegnOppTre(GLOBAL_RDS_TREE, $('mainContent'));
         updateEditedIndicators();
         setStatus(`✅ Skanning fullført. Fant ${totalObjects} gyldige objekter.`, 'ok');
         $('scanBtn').disabled = false;
         $('scanSelBtn').disabled = false;
+        if(totalObjects > 0) $('colorBtn').disabled = false;
 
     } catch (error) {
         setStatus(`❌ Feil under skanning: ${error.message}`, 'error');
@@ -426,6 +447,102 @@ async function kjorSkanner(mode) {
 
 $('scanBtn').addEventListener('click', () => kjorSkanner('all'));
 $('scanSelBtn').addEventListener('click', () => kjorSkanner('selection'));
+
+// -----------------------------------------------------
+// NYHET: FARGELEGGINGS-MOTOR
+// -----------------------------------------------------
+$('colorBtn').addEventListener('click', async () => {
+    try {
+        setStatus('⏳ Beregner fargekart...', '');
+        const colorPayloads = new Map();
+
+        // Traverserer treet rekursivt
+        function collectColors(levelDict, depth, currentTracker) {
+            for (const [key, nodeData] of Object.entries(levelDict)) {
+                let nextTracker = currentTracker;
+
+                // Nivå 5: EEnnn (Nullstill paletten!)
+                if (depth === 4) { 
+                    nextTracker = { index: 0, usedGgg: new Map() };
+                }
+
+                let myColorIndex = -1;
+                
+                // Nivå 7: GGGnnn (Tildel farge)
+                if (depth === 6 && nextTracker) { 
+                    if (!nextTracker.usedGgg.has(key)) {
+                        nextTracker.usedGgg.set(key, nextTracker.index++);
+                    }
+                    myColorIndex = nextTracker.usedGgg.get(key) % PALETTE.length;
+                } else if (depth > 6 && currentTracker) {
+                    // Arv fargen videre nedover i mappestrukturen
+                    myColorIndex = currentTracker.myColorIndex; 
+                }
+
+                // Legg objektene i riktig fargebøtte
+                if (myColorIndex !== -1 && nodeData.objekter.length > 0) {
+                    if (!colorPayloads.has(myColorIndex)) colorPayloads.set(myColorIndex, {});
+                    let cMap = colorPayloads.get(myColorIndex);
+
+                    nodeData.objekter.forEach(obj => {
+                        if (obj.runtimeId != null) {
+                            if (!cMap[obj.modelId]) cMap[obj.modelId] = [];
+                            cMap[obj.modelId].push(Number(obj.runtimeId));
+                        }
+                    });
+                }
+
+                // Send fargen videre ned til barna
+                if (depth === 6) {
+                    nextTracker = { ...nextTracker, myColorIndex: myColorIndex };
+                }
+                
+                collectColors(nodeData.barn, depth + 1, nextTracker);
+            }
+        }
+
+        collectColors(GLOBAL_RDS_TREE, 0, null);
+
+        // Klargjør data for Trimble Connect API
+        const payload = [];
+        for (const [colIdx, modelMap] of colorPayloads.entries()) {
+            const modelObjectIds = [];
+            for (const [mid, ids] of Object.entries(modelMap)) {
+                modelObjectIds.push({ modelId: mid, objectRuntimeIds: ids });
+            }
+            payload.push({
+                color: PALETTE[colIdx],
+                modelObjectIds: modelObjectIds
+            });
+        }
+
+        if (API.viewer.setColors) {
+            await API.viewer.setColors(payload);
+            $('resetColorBtn').style.display = 'inline-block';
+            setStatus('✅ Fargelegging fullført!', 'ok');
+        } else {
+            setStatus('❌ Fargelegging støttes ikke av denne API-versjonen.', 'error');
+        }
+    } catch (err) {
+        console.error(err);
+        setStatus('❌ Feil under fargelegging.', 'error');
+    }
+});
+
+$('resetColorBtn').addEventListener('click', async () => {
+    try {
+        if (API.viewer.resetColors) {
+            await API.viewer.resetColors();
+        } else if (API.viewer.setColors) {
+            await API.viewer.setColors([]); 
+        }
+        $('resetColorBtn').style.display = 'none';
+        setStatus('💧 Farger nullstilt til standard.', 'ok');
+    } catch (err) {
+        console.error(err);
+    }
+});
+
 
 $('debugBtn').addEventListener('click', async () => {
     try {
@@ -440,9 +557,7 @@ $('debugBtn').addEventListener('click', async () => {
         const rIds = selection[0].objectRuntimeIds;
         const propsArr = await API.viewer.getObjectProperties(mid, rIds);
         
-        console.log("🐞 RÅDATA FOR MARKERT OBJEKT:", propsArr);
-        
-        let debugMsg = "--- FEILSØKINGSRAPPORT ---\n(Sjekk F12 Console for rådata)\n\n";
+        let debugMsg = "--- FEILSØKINGSRAPPORT ---\n\n";
         propsArr.forEach((obj, idx) => {
             let foundNames = [];
             (obj.properties || []).forEach(pset => {
@@ -733,13 +848,11 @@ function tegnOppTre(treStruktur, container, erRot = true) {
         headerDiv.innerHTML = `<div class="tree-arrow">▶</div><div class="tree-title" title="${safeNøkkel}">${safeNøkkel}</div><div class="tree-count">${totaltAntall} obj</div>${editHtml}`;
         const childrenDiv = document.createElement('div'); childrenDiv.className = 'tree-children';
         
-        // Lagre IDer for 3D-synkronisering direkte på elementet
         headerDiv._modelObjectIds = formaterForMarkering(hentAlleIds(nodeData));
 
         headerDiv.onclick = async (e) => {
             e.stopPropagation();
             
-            // HÅNDTER MULTI-SELEKT KLASSELOGIKK (Mappe)
             const allRows = Array.from(document.querySelectorAll('.tree-header, .tree-object'));
             if (!e.ctrlKey && !e.shiftKey) {
                 allRows.forEach(r => r.classList.remove('active'));
@@ -755,7 +868,6 @@ function tegnOppTre(treStruktur, container, erRot = true) {
                 for (let i = min; i <= max; i++) { allRows[i].classList.add('active'); }
             }
 
-            // Åpne/lukke skjer kun hvis man ikke gjør Shift-områdevalg
             if (!e.shiftKey) {
                 const isOpen = childrenDiv.style.display === 'block'; childrenDiv.style.display = isOpen ? 'none' : 'block';
                 headerDiv.querySelector('.tree-arrow').innerText = isOpen ? '▼' : '▶';
@@ -776,13 +888,11 @@ function tegnOppTre(treStruktur, container, erRot = true) {
                 const objDiv = document.createElement('div'); objDiv.className = 'tree-object'; 
                 objDiv.innerHTML = `<div style="flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${obj.navn}">${obj.navn}</div><div class="tree-edit-btn" data-id="${obj.modelId}_${obj.runtimeId}" title="Endre egendefinerte egenskaper">✏️</div>`;
                 
-                // Lagre ID for 3D-synkronisering direkte på elementet
                 objDiv._modelObjectIds = [{ modelId: obj.modelId, objectRuntimeIds: [Number(obj.runtimeId)] }];
 
                 objDiv.onclick = async (e) => { 
                     e.stopPropagation(); 
                     
-                    // HÅNDTER MULTI-SELEKT KLASSELOGIKK (Objekt)
                     const allRows = Array.from(document.querySelectorAll('.tree-header, .tree-object'));
                     if (!e.ctrlKey && !e.shiftKey) {
                         allRows.forEach(r => r.classList.remove('active'));
