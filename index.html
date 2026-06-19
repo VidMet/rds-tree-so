@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v1.9</title>
+  <title>RDS Universal Editor v1.9.1</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -73,7 +73,6 @@
     .tree-node::before { content: ""; position: absolute; top: 0; left: -8px; bottom: 0; border-left: 1px solid var(--border); }
     .tree-node:last-child::before { bottom: auto; height: 16px; }
     
-    /* Endret for aktiv markering (frys farge) */
     .tree-header { display: flex; align-items: center; padding: 6px 8px; cursor: pointer; border-radius: 6px; transition: background 0.1s; margin-top: 2px; user-select: none; }
     .tree-header:hover { background: var(--bg); }
     .tree-header.active { background: var(--surface2); }
@@ -84,14 +83,12 @@
     
     .tree-children { display: none; }
     
-    /* Endret for aktiv markering (frys farge) */
     .tree-object { display: flex; align-items: center; justify-content: space-between; margin-left: 14px; padding: 6px 8px 6px 28px; font-size: 12px; color: var(--ink); cursor: pointer; transition: background 0.1s; border-radius: 4px; position: relative; margin-top: 2px; }
     .tree-object::before { content: ""; position: absolute; top: 0; left: -8px; bottom: auto; height: 16px; border-left: 1px solid var(--border); border-bottom: 1px solid var(--border); width: 12px; }
     .tree-object:hover { background: var(--blue-dim); color: var(--blue); }
     .tree-object.active { background: var(--blue-dim); color: var(--blue); font-weight: 600; }
     .tree-object::after { content: "🧊"; position: absolute; left: 10px; font-size: 10px; }
 
-    /* Endret: Redigeringsknapp med "Endret"-styling */
     .tree-edit-btn { margin-left: 8px; cursor: pointer; opacity: 0.4; font-size: 11px; padding: 3px 6px; border-radius: 4px; border: 1px solid transparent; white-space: nowrap; transition: all 0.15s; }
     .tree-edit-btn:hover { opacity: 1; background: var(--surface2); border-color: var(--border); }
     .tree-edit-btn.is-edited { opacity: 1; background: var(--red-dim); color: var(--red); border-color: var(--red); font-weight: bold; }
@@ -134,8 +131,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v1.9</span></h1>
-    <p>Aktiv markering & Visuell redigeringsstatus</p>
+    <h1>RDS Universal Editor <span class="version">v1.9.1</span></h1>
+    <p>Dyp skanning & Visuell redigeringsstatus</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   <button class="btn btn-primary" id="scanBtn" disabled>▶ Bygg RDS-tre</button>
@@ -174,7 +171,7 @@
 let API = null;
 let EXPORT_QUEUE = [];
 let currentEditTargets = []; 
-let activeTreeElement = null; // Variabel for å huske hva som er klikket på
+let activeTreeElement = null; 
 
 const LOPENUMMER_EGENSKAPER = [
     "01. rds-tag", 
@@ -216,11 +213,9 @@ function slaaSammen(props, nøkkel1, nøkkel2) {
     return "Udefinert";
 }
 
-// NY FUNKSJON: Oppdaterer blyant-ikonene basert på hva som ligger i køen
 function updateEditedIndicators() {
     const queuedIds = new Set(EXPORT_QUEUE.map(q => `${q.modelId}_${q.runtimeId}`));
     
-    // Oppdater alle objekter
     document.querySelectorAll('.tree-object .tree-edit-btn').forEach(btn => {
         const id = btn.getAttribute('data-id');
         if (queuedIds.has(id)) {
@@ -232,12 +227,10 @@ function updateEditedIndicators() {
         }
     });
 
-    // Oppdater alle mapper
     document.querySelectorAll('.tree-header .tree-edit-btn').forEach(btn => {
         const idsStr = btn.getAttribute('data-folder-ids');
         if (!idsStr) return;
         const ids = idsStr.split(',');
-        // Sjekk om ALLE objektene i denne mappen ligger i køen
         const allEdited = ids.length > 0 && ids.every(id => queuedIds.has(id));
         
         if (allEdited) {
@@ -271,7 +264,20 @@ $('scanBtn').addEventListener('click', async () => {
 
     for (const model of models) {
       const mid = model.modelId || model.modelid;
-      const objectIds = (model.objects || []).map(o => o.id || o.objectRuntimeId).filter(id => id != null);
+      
+      // NY REKURSIV FUNKSJON FOR Å FANGE OPP ALLE UNDEROBJEKTER (PARTS)
+      let objectIds = [];
+      function pakkUtObjekter(objList) {
+          for (const o of objList) {
+              const rId = o.id || o.objectRuntimeId;
+              if (rId != null) objectIds.push(rId);
+              // Graver videre nedover i hierarkiet
+              if (o.children && o.children.length > 0) {
+                  pakkUtObjekter(o.children);
+              }
+          }
+      }
+      pakkUtObjekter(model.objects || []);
       
       for (let i = 0; i < objectIds.length; i += CHUNK) {
         const chunk = objectIds.slice(i, i + CHUNK);
@@ -356,7 +362,7 @@ $('scanBtn').addEventListener('click', async () => {
 
     tegnOppTre(rdsTree, $('mainContent'));
     updateEditedIndicators();
-    setStatus(`✅ Tre bygget. Analyserte ${totalObjects} objekter.`, 'ok');
+    setStatus(`✅ Tre bygget. Analyserte ${totalObjects} objekter (inkl. underobjekter).`, 'ok');
     $('scanBtn').disabled = false;
 
   } catch (error) {
@@ -613,7 +619,6 @@ function tegnOppTre(treStruktur, container, erRot = true) {
         
         const erLavesteMappe = Object.keys(nodeData.barn).length === 0;
         
-        // Gjør klar ID-liste for mappen slik at redigeringsknappen kan sjekkes mot køen
         const alleIds = nodeData.objekter.map(o => `${o.modelId}_${o.runtimeId}`).join(',');
         let editHtml = erLavesteMappe ? `<div class="tree-edit-btn" data-folder-ids="${alleIds}" title="Endre egenskaper for alle objekter i mappen">✏️</div>` : '';
 
@@ -624,7 +629,6 @@ function tegnOppTre(treStruktur, container, erRot = true) {
         headerDiv.onclick = async (e) => {
             e.stopPropagation();
             
-            // Frys farge for mappe
             if (activeTreeElement) activeTreeElement.classList.remove('active');
             headerDiv.classList.add('active');
             activeTreeElement = headerDiv;
@@ -649,7 +653,6 @@ function tegnOppTre(treStruktur, container, erRot = true) {
                 objDiv.onclick = async (e) => { 
                     e.stopPropagation(); 
                     
-                    // Frys farge for objekt
                     if (activeTreeElement) activeTreeElement.classList.remove('active');
                     objDiv.classList.add('active');
                     activeTreeElement = objDiv;
