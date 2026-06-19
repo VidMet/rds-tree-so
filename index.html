@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v2.2</title>
+  <title>RDS Universal Editor v2.3</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -119,19 +119,13 @@
     ::-webkit-scrollbar-track { background: var(--bg); }
     ::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: var(--ink); }
-
-    @keyframes fadeUp {
-      from { opacity:0; transform:translateY(6px); }
-      to   { opacity:1; transform:none; }
-    }
-    .anim { animation: fadeUp .3s ease both; }
   </style>
 </head>
 <body>
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v2.2</span></h1>
+    <h1>RDS Universal Editor <span class="version">v2.3</span></h1>
     <p>Inkluderer 100% skanning via 3D-markering</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
@@ -248,9 +242,6 @@ function updateEditedIndicators() {
     });
 }
 
-// -----------------------------------------------------
-// HOVEDMOTOR: BYGG TRE (All eller Markering)
-// -----------------------------------------------------
 async function kjorSkanner(mode) {
     if (!API) return;
     $('scanBtn').disabled = true;
@@ -410,9 +401,6 @@ async function kjorSkanner(mode) {
 $('scanBtn').addEventListener('click', () => kjorSkanner('all'));
 $('scanSelBtn').addEventListener('click', () => kjorSkanner('selection'));
 
-// -----------------------------------------------------
-// DEBUGGER
-// -----------------------------------------------------
 $('debugBtn').addEventListener('click', async () => {
     try {
         setStatus('⏳ Feilsøker markert objekt...');
@@ -453,7 +441,6 @@ $('debugBtn').addEventListener('click', async () => {
         setStatus('❌ Feil under feilsøking.', 'error');
     }
 });
-
 
 function oppdaterUI() {
     const antall = EXPORT_QUEUE.length;
@@ -679,7 +666,6 @@ function saveModal() {
 
 function tellObjekter(nodeMap) { let count = nodeMap.objekter.length; for (const key in nodeMap.barn) { count += tellObjekter(nodeMap.barn[key]); } return count; }
 
-// LOGISK FEIL RETTET HER! Sjekker kun at runtimeId finnes, ignorerer ikke hvis idMap er tom.
 function hentAlleIds(nodeMap) { 
     let idMap = {}; 
     nodeMap.objekter.forEach(obj => { 
@@ -732,13 +718,13 @@ function tegnOppTre(treStruktur, container, erRot = true) {
             const isOpen = childrenDiv.style.display === 'block'; childrenDiv.style.display = isOpen ? 'none' : 'block';
             headerDiv.querySelector('.tree-arrow').innerText = isOpen ? '▼' : '▶';
             
-            // SIKKER MARKERING KALL
+            // FIKSET KORREKT SYNTAX: { modelObjectIds: ... }, 'set'
             const alleIdsForMarkering = formaterForMarkering(hentAlleIds(nodeData));
             try { 
                 if (API.viewer.setSelection && alleIdsForMarkering.length > 0) { 
-                    await API.viewer.setSelection(alleIdsForMarkering); 
+                    await API.viewer.setSelection({ modelObjectIds: alleIdsForMarkering }, 'set'); 
                 } 
-            } catch(err) { console.warn("Feil ved markering av mappe", err); }
+            } catch(err) { console.warn("Feil ved markering", err); }
         };
 
         if (erLavesteMappe) {
@@ -760,12 +746,12 @@ function tegnOppTre(treStruktur, container, erRot = true) {
                     objDiv.classList.add('active');
                     activeTreeElement = objDiv;
 
-                    // SIKKER MARKERING KALL
+                    // FIKSET KORREKT SYNTAX: { modelObjectIds: ... }, 'set'
                     try { 
                         if (API.viewer.setSelection && obj.runtimeId != null) { 
-                            await API.viewer.setSelection([{ modelId: obj.modelId, objectRuntimeIds: [Number(obj.runtimeId)] }]); 
+                            await API.viewer.setSelection({ modelObjectIds: [{ modelId: obj.modelId, objectRuntimeIds: [Number(obj.runtimeId)] }] }, 'set'); 
                         } 
-                    } catch(err) { console.warn("Feil ved markering av objekt", err); } 
+                    } catch(err) { console.warn("Feil ved markering", err); } 
                 };
                 
                 const objEditBtn = objDiv.querySelector('.tree-edit-btn');
