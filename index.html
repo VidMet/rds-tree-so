@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v1.7</title>
+  <title>RDS Universal Editor v1.8</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -92,16 +92,25 @@
 
     .empty { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 13px; }
 
-    /* MODAL CSS */
+    /* MODAL CSS (Oppdatert for foldere/trekkspill) */
     .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
-    .modal-box { background: var(--surface); padding: 20px; border-radius: 8px; width: 440px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border: 1px solid var(--border); }
+    .modal-box { background: var(--surface); padding: 20px; border-radius: 8px; width: 440px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border: 1px solid var(--border); display: flex; flex-direction: column; max-height: 90vh; }
     .modal-box h3 { margin: 0 0 4px 0; font-size: 15px; }
     .modal-box p { margin: 0 0 16px 0; font-size: 11px; color: var(--muted); word-break: break-all; }
+    
+    #modalForm { flex-grow: 1; overflow-y: auto; padding-right: 6px; }
+    
+    .pset-group { border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px; overflow: hidden; }
+    .pset-summary { background: var(--surface2); padding: 8px 12px; font-weight: bold; font-size: 12px; cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center; outline: none; }
+    .pset-summary::-webkit-details-marker { display: none; }
+    .pset-summary::after { content: '▼'; font-size: 10px; color: var(--muted); }
+    details[open] .pset-summary::after { content: '▲'; }
+    .pset-content { padding: 12px; background: var(--surface); border-top: 1px solid var(--border); }
+
     .modal-form-group { margin-bottom: 12px; }
+    .modal-form-group:last-child { margin-bottom: 0; }
     .modal-form-group label { display: block; font-size: 11px; font-weight: bold; margin-bottom: 4px; color: var(--ink); }
     .modal-form-group input { width: 100%; font-family: var(--mono); }
-    
-    #modalForm { max-height: 55vh; overflow-y: auto; padding-right: 12px; }
 
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: var(--bg); }
@@ -119,8 +128,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v1.7</span></h1>
-    <p>Hierarkisk visning & Dynamisk skjemaredigering</p>
+    <h1>RDS Universal Editor <span class="version">v1.8</span></h1>
+    <p>Grupperte egenskapssett & Dynamisk redigering</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   <button class="btn btn-primary" id="scanBtn" disabled>▶ Bygg RDS-tre</button>
@@ -161,7 +170,6 @@ let API = null;
 let EXPORT_QUEUE = [];
 let currentEditTargets = []; 
 
-// Hurtig-oppdatering på toppen fungerer KUN for disse, som før.
 const LOPENUMMER_EGENSKAPER = [
     "01. rds-tag", 
     "15. hhhnnnnn", 
@@ -237,11 +245,12 @@ $('scanBtn').addEventListener('click', async () => {
           else if (obj.ifcGuid) globalId = obj.ifcGuid;
 
           const flatProps = {};
-          const customProps = {}; // Her samler vi alt som skal vises i skjemaet
+          const groupedProps = {}; // NYTT: Samler egenskapene sortert i mappenavn
 
           (obj.properties || []).forEach(pset => {
              if (!pset.name) return;
-             const psetNameLower = pset.name.trim().toLowerCase();
+             const psetName = pset.name.trim();
+             const psetNameLower = psetName.toLowerCase();
              const isSystem = psetNameLower.startsWith('ifc') || SYSTEM_PSETS.includes(psetNameLower);
 
              (pset.properties || []).forEach(p => {
@@ -252,13 +261,13 @@ $('scanBtn').addEventListener('click', async () => {
                    if (valStr !== "") {
                        flatProps[nameLower] = valStr;
                        
-                       // Legger til i customProps KUN hvis det ikke er en system-egenskap
+                       // Legg til i mappestrukturen hvis det ikke er systemvariabel
                        if (!isSystem) {
-                           customProps[p.name.trim()] = valStr; // Beholder store/små bokstaver!
+                           if (!groupedProps[psetName]) groupedProps[psetName] = {};
+                           groupedProps[psetName][p.name.trim()] = valStr;
                        }
                    }
                    
-                   // Den aggressive GUID-støvsugeren
                    if (nameLower.includes("guid") || nameLower.includes("globalid") || nameLower === "objid") {
                        if (nameLower.includes("ifc") || nameLower === "globalid" || nameLower === "objid") {
                            globalId = valStr;
@@ -297,7 +306,7 @@ $('scanBtn').addEventListener('click', async () => {
                       runtimeId: obj.id || obj.objectRuntimeId,
                       guid: globalId,
                       flatProps: flatProps,
-                      customProps: customProps // Tas vare på for modalen!
+                      groupedProps: groupedProps // Modalen bruker denne strukturen!
                   });
               }
               gjeldendeNivå = gjeldendeNivå[nodensNavn].barn;
@@ -330,7 +339,7 @@ $('clearBtn').addEventListener('click', () => {
     setStatus('🗑️ Køen er tømt.', 'ok');
 });
 
-// HURTIG-OPPDATERING PÅ TOPPEN (Løpenummer)
+// HURTIG-OPPDATERING PÅ TOPPEN
 $('queueBtn').addEventListener('click', async () => {
     const newNumber = $('newRunningNumber').value.trim();
     if (!newNumber) { alert("Du må skrive inn et nytt løpenummer først."); return; }
@@ -399,21 +408,32 @@ $('exportBtn').addEventListener('click', () => {
     } catch (error) { setStatus(`❌ Feil under eksport: ${error.message}`, 'error'); }
 });
 
-// MODAL: LOGIKK FOR SKJEMA
+// MODAL: LOGIKK FOR DYNAMISK SKJEMA MED MAPPER
 function openModalForObject(obj) {
     currentEditTargets = [obj];
-    $('modalTitle').innerText = 'Rediger egendefinerte egenskaper';
+    $('modalTitle').innerText = 'Rediger egenskaper';
     $('modalSubtitle').innerText = obj.navn;
     $('modalWarning').style.display = 'none';
     
     let html = '';
-    const propKeys = Object.keys(obj.customProps).sort();
-    propKeys.forEach(prop => {
-        const val = obj.customProps[prop];
-        html += `<div class="modal-form-group">
-                   <label>${escapeHTML(prop)}</label>
-                   <input type="text" class="input-field" data-prop="${escapeHTML(prop)}" data-original-value="${escapeHTML(val)}" value="${escapeHTML(val)}">
-                 </div>`;
+    const psetKeys = Object.keys(obj.groupedProps).sort();
+    
+    psetKeys.forEach(psetName => {
+        // Bruker standard HTML details/summary for å lage "mapper"
+        html += `<details class="pset-group" open>
+                    <summary class="pset-summary">${escapeHTML(psetName)}</summary>
+                    <div class="pset-content">`;
+        
+        const propKeys = Object.keys(obj.groupedProps[psetName]).sort();
+        propKeys.forEach(prop => {
+            const val = obj.groupedProps[psetName][prop];
+            html += `<div class="modal-form-group">
+                       <label>${escapeHTML(prop)}</label>
+                       <input type="text" class="input-field" data-prop="${escapeHTML(prop)}" data-original-value="${escapeHTML(val)}" value="${escapeHTML(val)}">
+                     </div>`;
+        });
+        
+        html += `</div></details>`;
     });
     
     $('modalForm').innerHTML = html;
@@ -426,30 +446,55 @@ function openModalForFolder(nodeName, nodeData) {
     $('modalSubtitle').innerText = `${nodeName} (${currentEditTargets.length} objekter)`;
     $('modalWarning').style.display = 'block';
     
-    // Finn alle unike egenskaper på tvers av objektene i mappen
-    const allKeys = new Set();
-    currentEditTargets.forEach(obj => { Object.keys(obj.customProps).forEach(k => allKeys.add(k)); });
+    // 1. Samle alle unike Property Sets og egenskapene deres på tvers av objektene
+    const allGroupedKeys = {};
+    currentEditTargets.forEach(obj => {
+        Object.keys(obj.groupedProps).forEach(psetName => {
+            if (!allGroupedKeys[psetName]) allGroupedKeys[psetName] = new Set();
+            Object.keys(obj.groupedProps[psetName]).forEach(propName => {
+                allGroupedKeys[psetName].add(propName);
+            });
+        });
+    });
 
+    // 2. Bygg HTML med mappene
     let html = '';
-    Array.from(allKeys).sort().forEach(prop => {
-        let firstVal = currentEditTargets[0].customProps[prop];
-        firstVal = firstVal !== undefined ? firstVal : "";
-        let isSame = true;
+    Object.keys(allGroupedKeys).sort().forEach(psetName => {
+        html += `<details class="pset-group" open>
+                    <summary class="pset-summary">${escapeHTML(psetName)}</summary>
+                    <div class="pset-content">`;
         
-        for(let i = 1; i < currentEditTargets.length; i++) {
-            let checkVal = currentEditTargets[i].customProps[prop];
-            checkVal = checkVal !== undefined ? checkVal : "";
-            if(checkVal !== firstVal) { isSame = false; break; }
-        }
+        Array.from(allGroupedKeys[psetName]).sort().forEach(prop => {
+            let firstVal = undefined;
+            let firstValFound = false;
+            let isSame = true;
+            
+            // Sjekk om alle objektene har samme verdi for denne egenskapen
+            for(let i = 0; i < currentEditTargets.length; i++) {
+                let checkObj = currentEditTargets[i];
+                let checkVal = (checkObj.groupedProps[psetName] && checkObj.groupedProps[psetName][prop] !== undefined) 
+                               ? checkObj.groupedProps[psetName][prop] : "";
+                
+                if (!firstValFound) {
+                    firstVal = checkVal;
+                    firstValFound = true;
+                } else if (checkVal !== firstVal) {
+                    isSame = false;
+                    break;
+                }
+            }
 
-        const displayVal = isSame ? escapeHTML(firstVal) : "";
-        const originalVal = isSame ? escapeHTML(firstVal) : "__MIXED__";
-        const placeholder = isSame ? "" : "Ulike verdier... Skriv her for å overskrive alle";
+            const displayVal = isSame ? escapeHTML(firstVal) : "";
+            const originalVal = isSame ? escapeHTML(firstVal) : "__MIXED__";
+            const placeholder = isSame ? "" : "Ulike verdier... Skriv her for å overskrive alle";
 
-        html += `<div class="modal-form-group">
-                   <label>${escapeHTML(prop)}</label>
-                   <input type="text" class="input-field" data-prop="${escapeHTML(prop)}" data-original-value="${originalVal}" value="${displayVal}" placeholder="${placeholder}">
-                 </div>`;
+            html += `<div class="modal-form-group">
+                       <label>${escapeHTML(prop)}</label>
+                       <input type="text" class="input-field" data-prop="${escapeHTML(prop)}" data-original-value="${originalVal}" value="${displayVal}" placeholder="${placeholder}">
+                     </div>`;
+        });
+        
+        html += `</div></details>`;
     });
     
     $('modalForm').innerHTML = html;
@@ -465,31 +510,23 @@ function saveModal() {
     const inputs = $('modalForm').querySelectorAll('input');
     const plannedChanges = {};
     
-    // 1. Finn ut hva som faktisk har blitt skrevet/endret i skjemaet
     inputs.forEach(inp => {
         const propName = inp.getAttribute('data-prop');
         const newVal = inp.value.trim();
         const originalVal = inp.getAttribute('data-original-value');
 
         if (originalVal === "__MIXED__") {
-            // Hvis det var en blanding av verdier (blankt felt), lagrer vi KUN hvis brukeren har skrevet inn en ny felles verdi.
-            if (newVal !== "") {
-                plannedChanges[propName.toLowerCase()] = newVal; 
-            }
+            if (newVal !== "") { plannedChanges[propName.toLowerCase()] = newVal; }
         } else {
-            // Hvis verdien var lik på alle (eller det var ett objekt), lagrer vi hvis den er endret.
-            if (newVal !== originalVal) {
-                plannedChanges[propName.toLowerCase()] = newVal;
-            }
+            if (newVal !== originalVal) { plannedChanges[propName.toLowerCase()] = newVal; }
         }
     });
 
     if (Object.keys(plannedChanges).length === 0) {
         closeModal();
-        return; // Ingenting endret, lukk og avbryt.
+        return; 
     }
 
-    // 2. Dytt de nye endringene inn i køen for alle markerte objekter
     currentEditTargets.forEach(target => {
         EXPORT_QUEUE = EXPORT_QUEUE.filter(item => !(item.modelId === target.modelId && item.runtimeId === target.runtimeId));
         
@@ -498,7 +535,6 @@ function saveModal() {
             modelId: target.modelId,
             runtimeId: target.runtimeId,
             gammelRdsTag: target.flatProps["01. rds-tag"] || "",
-            // Kopi av endringene, slik at Python finner dem i lowerCase
             egenskaperSomSkalEndres: { ...plannedChanges } 
         };
         
