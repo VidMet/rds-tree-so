@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v1.8</title>
+  <title>RDS Universal Editor v1.9</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -73,8 +73,10 @@
     .tree-node::before { content: ""; position: absolute; top: 0; left: -8px; bottom: 0; border-left: 1px solid var(--border); }
     .tree-node:last-child::before { bottom: auto; height: 16px; }
     
+    /* Endret for aktiv markering (frys farge) */
     .tree-header { display: flex; align-items: center; padding: 6px 8px; cursor: pointer; border-radius: 6px; transition: background 0.1s; margin-top: 2px; user-select: none; }
     .tree-header:hover { background: var(--bg); }
+    .tree-header.active { background: var(--surface2); }
     
     .tree-arrow { font-size: 10px; color: var(--muted); width: 16px; text-align: center; margin-right: 4px; }
     .tree-title { flex: 1; font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -82,17 +84,21 @@
     
     .tree-children { display: none; }
     
+    /* Endret for aktiv markering (frys farge) */
     .tree-object { display: flex; align-items: center; justify-content: space-between; margin-left: 14px; padding: 6px 8px 6px 28px; font-size: 12px; color: var(--ink); cursor: pointer; transition: background 0.1s; border-radius: 4px; position: relative; margin-top: 2px; }
     .tree-object::before { content: ""; position: absolute; top: 0; left: -8px; bottom: auto; height: 16px; border-left: 1px solid var(--border); border-bottom: 1px solid var(--border); width: 12px; }
     .tree-object:hover { background: var(--blue-dim); color: var(--blue); }
+    .tree-object.active { background: var(--blue-dim); color: var(--blue); font-weight: 600; }
     .tree-object::after { content: "🧊"; position: absolute; left: 10px; font-size: 10px; }
 
-    .tree-edit-btn { margin-left: 8px; cursor: pointer; opacity: 0.4; font-size: 12px; padding: 2px 4px; border-radius: 4px; }
-    .tree-edit-btn:hover { opacity: 1; background: var(--surface2); }
+    /* Endret: Redigeringsknapp med "Endret"-styling */
+    .tree-edit-btn { margin-left: 8px; cursor: pointer; opacity: 0.4; font-size: 11px; padding: 3px 6px; border-radius: 4px; border: 1px solid transparent; white-space: nowrap; transition: all 0.15s; }
+    .tree-edit-btn:hover { opacity: 1; background: var(--surface2); border-color: var(--border); }
+    .tree-edit-btn.is-edited { opacity: 1; background: var(--red-dim); color: var(--red); border-color: var(--red); font-weight: bold; }
 
     .empty { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 13px; }
 
-    /* MODAL CSS (Oppdatert for foldere/trekkspill) */
+    /* MODAL CSS */
     .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 1000; }
     .modal-box { background: var(--surface); padding: 20px; border-radius: 8px; width: 440px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border: 1px solid var(--border); display: flex; flex-direction: column; max-height: 90vh; }
     .modal-box h3 { margin: 0 0 4px 0; font-size: 15px; }
@@ -128,8 +134,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v1.8</span></h1>
-    <p>Grupperte egenskapssett & Dynamisk redigering</p>
+    <h1>RDS Universal Editor <span class="version">v1.9</span></h1>
+    <p>Aktiv markering & Visuell redigeringsstatus</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   <button class="btn btn-primary" id="scanBtn" disabled>▶ Bygg RDS-tre</button>
@@ -156,8 +162,7 @@
         <div id="modalWarning" style="display:none; font-size:11px; color:var(--blue); margin-bottom:12px; background:var(--blue-dim); padding:8px; border-radius:4px;">
             Advarsel: Verdier du endrer her vil oppdateres for <b>ALLE</b> objektene i mappen. Felt som står blanke betyr at objektene har ulike verdier. Lar du feltet stå blankt, endres ingenting.
         </div>
-        <div id="modalForm">
-            </div>
+        <div id="modalForm"></div>
         <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:20px;">
             <button class="btn btn-danger" onclick="closeModal()">Avbryt</button>
             <button class="btn btn-success" onclick="saveModal()">Lagre i kø</button>
@@ -169,6 +174,7 @@
 let API = null;
 let EXPORT_QUEUE = [];
 let currentEditTargets = []; 
+let activeTreeElement = null; // Variabel for å huske hva som er klikket på
 
 const LOPENUMMER_EGENSKAPER = [
     "01. rds-tag", 
@@ -176,7 +182,6 @@ const LOPENUMMER_EGENSKAPER = [
     "16. hhhnnnnn navn"
 ];
 
-// Egenskapssett vi IKKE vil vise i redigeringsskjemaet (System-variabler)
 const SYSTEM_PSETS = [
     'calculatedgeometryvalues', 'orientedboundingbox', 'reference object', 
     'common', 'quantities', 'trimble', 'ifcslab', 'ifcwall', 'ifcalignment'
@@ -211,10 +216,45 @@ function slaaSammen(props, nøkkel1, nøkkel2) {
     return "Udefinert";
 }
 
+// NY FUNKSJON: Oppdaterer blyant-ikonene basert på hva som ligger i køen
+function updateEditedIndicators() {
+    const queuedIds = new Set(EXPORT_QUEUE.map(q => `${q.modelId}_${q.runtimeId}`));
+    
+    // Oppdater alle objekter
+    document.querySelectorAll('.tree-object .tree-edit-btn').forEach(btn => {
+        const id = btn.getAttribute('data-id');
+        if (queuedIds.has(id)) {
+            btn.classList.add('is-edited');
+            btn.innerHTML = '✏️ Endret';
+        } else {
+            btn.classList.remove('is-edited');
+            btn.innerHTML = '✏️';
+        }
+    });
+
+    // Oppdater alle mapper
+    document.querySelectorAll('.tree-header .tree-edit-btn').forEach(btn => {
+        const idsStr = btn.getAttribute('data-folder-ids');
+        if (!idsStr) return;
+        const ids = idsStr.split(',');
+        // Sjekk om ALLE objektene i denne mappen ligger i køen
+        const allEdited = ids.length > 0 && ids.every(id => queuedIds.has(id));
+        
+        if (allEdited) {
+            btn.classList.add('is-edited');
+            btn.innerHTML = '✏️ Endret';
+        } else {
+            btn.classList.remove('is-edited');
+            btn.innerHTML = '✏️';
+        }
+    });
+}
+
 $('scanBtn').addEventListener('click', async () => {
   if (!API) return;
   $('scanBtn').disabled = true;
   $('mainContent').innerHTML = '';
+  activeTreeElement = null;
   
   try {
     setStatus('⏳ Henter modeller fra vieweren...');
@@ -245,7 +285,7 @@ $('scanBtn').addEventListener('click', async () => {
           else if (obj.ifcGuid) globalId = obj.ifcGuid;
 
           const flatProps = {};
-          const groupedProps = {}; // NYTT: Samler egenskapene sortert i mappenavn
+          const groupedProps = {}; 
 
           (obj.properties || []).forEach(pset => {
              if (!pset.name) return;
@@ -260,8 +300,6 @@ $('scanBtn').addEventListener('click', async () => {
                    
                    if (valStr !== "") {
                        flatProps[nameLower] = valStr;
-                       
-                       // Legg til i mappestrukturen hvis det ikke er systemvariabel
                        if (!isSystem) {
                            if (!groupedProps[psetName]) groupedProps[psetName] = {};
                            groupedProps[psetName][p.name.trim()] = valStr;
@@ -306,7 +344,7 @@ $('scanBtn').addEventListener('click', async () => {
                       runtimeId: obj.id || obj.objectRuntimeId,
                       guid: globalId,
                       flatProps: flatProps,
-                      groupedProps: groupedProps // Modalen bruker denne strukturen!
+                      groupedProps: groupedProps 
                   });
               }
               gjeldendeNivå = gjeldendeNivå[nodensNavn].barn;
@@ -317,6 +355,7 @@ $('scanBtn').addEventListener('click', async () => {
     }
 
     tegnOppTre(rdsTree, $('mainContent'));
+    updateEditedIndicators();
     setStatus(`✅ Tre bygget. Analyserte ${totalObjects} objekter.`, 'ok');
     $('scanBtn').disabled = false;
 
@@ -336,10 +375,10 @@ function oppdaterUI() {
 $('clearBtn').addEventListener('click', () => {
     EXPORT_QUEUE = [];
     oppdaterUI();
+    updateEditedIndicators();
     setStatus('🗑️ Køen er tømt.', 'ok');
 });
 
-// HURTIG-OPPDATERING PÅ TOPPEN
 $('queueBtn').addEventListener('click', async () => {
     const newNumber = $('newRunningNumber').value.trim();
     if (!newNumber) { alert("Du må skrive inn et nytt løpenummer først."); return; }
@@ -391,7 +430,9 @@ $('queueBtn').addEventListener('click', async () => {
                 if (Object.keys(updateItem.egenskaperSomSkalEndres).length > 0) { EXPORT_QUEUE.push(updateItem); addedCount++; }
             });
         }
-        oppdaterUI(); setStatus(`✅ La til ${addedCount} objekter via hurtigoppdatering.`, 'ok');
+        oppdaterUI(); 
+        updateEditedIndicators();
+        setStatus(`✅ La til ${addedCount} objekter via hurtigoppdatering.`, 'ok');
     } catch (error) { setStatus(`❌ Feil: ${error.message}`, 'error'); }
 });
 
@@ -404,11 +445,16 @@ $('exportBtn').addEventListener('click', () => {
         const a = document.createElement("a");
         a.href = url; a.download = `rds_batch_update_flere.json`;
         document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-        setStatus(`🎉 Eksporterte JSON-fil med ${EXPORT_QUEUE.length} endringer.`, 'ok');
+        
+        const antallEksportert = EXPORT_QUEUE.length;
+        EXPORT_QUEUE = [];
+        oppdaterUI();
+        updateEditedIndicators();
+        
+        setStatus(`🎉 Eksporterte JSON-fil med ${antallEksportert} endringer. Køen er tømt.`, 'ok');
     } catch (error) { setStatus(`❌ Feil under eksport: ${error.message}`, 'error'); }
 });
 
-// MODAL: LOGIKK FOR DYNAMISK SKJEMA MED MAPPER
 function openModalForObject(obj) {
     currentEditTargets = [obj];
     $('modalTitle').innerText = 'Rediger egenskaper';
@@ -419,7 +465,6 @@ function openModalForObject(obj) {
     const psetKeys = Object.keys(obj.groupedProps).sort();
     
     psetKeys.forEach(psetName => {
-        // Bruker standard HTML details/summary for å lage "mapper"
         html += `<details class="pset-group" open>
                     <summary class="pset-summary">${escapeHTML(psetName)}</summary>
                     <div class="pset-content">`;
@@ -446,7 +491,6 @@ function openModalForFolder(nodeName, nodeData) {
     $('modalSubtitle').innerText = `${nodeName} (${currentEditTargets.length} objekter)`;
     $('modalWarning').style.display = 'block';
     
-    // 1. Samle alle unike Property Sets og egenskapene deres på tvers av objektene
     const allGroupedKeys = {};
     currentEditTargets.forEach(obj => {
         Object.keys(obj.groupedProps).forEach(psetName => {
@@ -457,7 +501,6 @@ function openModalForFolder(nodeName, nodeData) {
         });
     });
 
-    // 2. Bygg HTML med mappene
     let html = '';
     Object.keys(allGroupedKeys).sort().forEach(psetName => {
         html += `<details class="pset-group" open>
@@ -469,7 +512,6 @@ function openModalForFolder(nodeName, nodeData) {
             let firstValFound = false;
             let isSame = true;
             
-            // Sjekk om alle objektene har samme verdi for denne egenskapen
             for(let i = 0; i < currentEditTargets.length; i++) {
                 let checkObj = currentEditTargets[i];
                 let checkVal = (checkObj.groupedProps[psetName] && checkObj.groupedProps[psetName][prop] !== undefined) 
@@ -544,12 +586,12 @@ function saveModal() {
 
     if (hasChanges) {
         oppdaterUI();
+        updateEditedIndicators();
         setStatus(`✅ Lagret endringer i køen for ${currentEditTargets.length} objekter via skjema.`, 'ok');
     }
     closeModal();
 }
 
-// BYGGE TRE UI
 function tellObjekter(nodeMap) { let count = nodeMap.objekter.length; for (const key in nodeMap.barn) { count += tellObjekter(nodeMap.barn[key]); } return count; }
 function hentAlleIds(nodeMap) { let idMap = {}; nodeMap.objekter.forEach(obj => { if (!idMap[obj.modelId]) idMap[obj.modelId] = []; idMap[obj.modelId].push(Number(obj.runtimeId)); }); for (const key in nodeMap.barn) { const barnIds = hentAlleIds(nodeMap.barn[key]); for (const mid in barnIds) { if (!idMap[mid]) idMap[mid] = []; idMap[mid].push(...barnIds[mid]); } } return idMap; }
 function formaterForMarkering(idMap) { return Object.keys(idMap).map(mid => ({ modelId: mid, objectRuntimeIds: idMap[mid] })); }
@@ -570,7 +612,10 @@ function tegnOppTre(treStruktur, container, erRot = true) {
         const safeNøkkel = escapeHTML(nøkkel);
         
         const erLavesteMappe = Object.keys(nodeData.barn).length === 0;
-        let editHtml = erLavesteMappe ? `<div class="tree-edit-btn" title="Endre egenskaper for alle objekter i mappen">✏️</div>` : '';
+        
+        // Gjør klar ID-liste for mappen slik at redigeringsknappen kan sjekkes mot køen
+        const alleIds = nodeData.objekter.map(o => `${o.modelId}_${o.runtimeId}`).join(',');
+        let editHtml = erLavesteMappe ? `<div class="tree-edit-btn" data-folder-ids="${alleIds}" title="Endre egenskaper for alle objekter i mappen">✏️</div>` : '';
 
         headerDiv.innerHTML = `<div class="tree-arrow">▶</div><div class="tree-title" title="${safeNøkkel}">${safeNøkkel}</div><div class="tree-count">${totaltAntall} obj</div>${editHtml}`;
         const childrenDiv = document.createElement('div'); childrenDiv.className = 'tree-children';
@@ -578,6 +623,12 @@ function tegnOppTre(treStruktur, container, erRot = true) {
         
         headerDiv.onclick = async (e) => {
             e.stopPropagation();
+            
+            // Frys farge for mappe
+            if (activeTreeElement) activeTreeElement.classList.remove('active');
+            headerDiv.classList.add('active');
+            activeTreeElement = headerDiv;
+
             const isOpen = childrenDiv.style.display === 'block'; childrenDiv.style.display = isOpen ? 'none' : 'block';
             headerDiv.querySelector('.tree-arrow').innerText = isOpen ? '▼' : '▶';
             try { if (API.viewer.setSelection && alleIdsForMarkering.length > 0) { await API.viewer.setSelection({ modelObjectIds: alleIdsForMarkering }, 'set'); } } catch(err) {}
@@ -593,9 +644,18 @@ function tegnOppTre(treStruktur, container, erRot = true) {
         if (nodeData.objekter.length > 0) {
             nodeData.objekter.sort((a, b) => a.navn.localeCompare(b.navn)).forEach(obj => {
                 const objDiv = document.createElement('div'); objDiv.className = 'tree-object'; 
-                objDiv.innerHTML = `<div style="flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${obj.navn}">${obj.navn}</div><div class="tree-edit-btn" title="Endre egendefinerte egenskaper">✏️</div>`;
+                objDiv.innerHTML = `<div style="flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${obj.navn}">${obj.navn}</div><div class="tree-edit-btn" data-id="${obj.modelId}_${obj.runtimeId}" title="Endre egendefinerte egenskaper">✏️</div>`;
                 
-                objDiv.onclick = async (e) => { e.stopPropagation(); try { if (API.viewer.setSelection) { await API.viewer.setSelection({ modelObjectIds: [{ modelId: obj.modelId, objectRuntimeIds: [Number(obj.runtimeId)] }] }, 'set'); } } catch(err) {} };
+                objDiv.onclick = async (e) => { 
+                    e.stopPropagation(); 
+                    
+                    // Frys farge for objekt
+                    if (activeTreeElement) activeTreeElement.classList.remove('active');
+                    objDiv.classList.add('active');
+                    activeTreeElement = objDiv;
+
+                    try { if (API.viewer.setSelection) { await API.viewer.setSelection({ modelObjectIds: [{ modelId: obj.modelId, objectRuntimeIds: [Number(obj.runtimeId)] }] }, 'set'); } } catch(err) {} 
+                };
                 
                 const objEditBtn = objDiv.querySelector('.tree-edit-btn');
                 objEditBtn.onclick = (e) => { e.stopPropagation(); openModalForObject(obj); };
