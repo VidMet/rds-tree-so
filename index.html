@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v2.8</title>
+  <title>RDS Universal Editor v2.9</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -128,8 +128,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v2.8</span></h1>
-    <p>Ren og produksjonsklar</p>
+    <h1>RDS Universal Editor <span class="version">v2.9</span></h1>
+    <p>Fargelegging med C-ledd nullstilling</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -446,7 +446,7 @@ $('scanBtn').addEventListener('click', () => kjorSkanner('all'));
 $('scanSelBtn').addEventListener('click', () => kjorSkanner('selection'));
 
 // -----------------------------------------------------
-// FARGELEGGINGS-MOTOR
+// FARGELEGGINGS-MOTOR (OPPDATERT TIL HHH OG CNN-RESET)
 // -----------------------------------------------------
 $('colorBtn').addEventListener('click', async () => {
     if (!API) return;
@@ -454,16 +454,18 @@ $('colorBtn').addEventListener('click', async () => {
         setStatus('⏳ Beregner fargekart...', '');
         const colorPayloads = new Map();
 
+        // Nullstill farger først for å unngå feil
         try { 
             if (API.viewer.setObjectState) await API.viewer.setObjectState(undefined, { color: 'reset' }); 
         } catch(e){}
 
+        // Traverserer treet rekursivt
         function collectColors(levelDict, depth, currentTracker) {
             for (const [key, nodeData] of Object.entries(levelDict)) {
                 let nextTracker = currentTracker;
 
-                // Nivå 6: FFFnnn (Nullstill paletten!) - indeks 5
-                if (depth === 5) { 
+                // Nivå 3: Cnn (Nullstill paletten!) - indeks 2
+                if (depth === 2) { 
                     nextTracker = { index: 0, usedHhh: new Map() };
                 }
 
@@ -479,6 +481,7 @@ $('colorBtn').addEventListener('click', async () => {
                     myColorIndex = currentTracker.myColorIndex; 
                 }
 
+                // Legg objektene i riktig fargebøtte
                 if (myColorIndex !== -1 && nodeData.objekter.length > 0) {
                     if (!colorPayloads.has(myColorIndex)) colorPayloads.set(myColorIndex, {});
                     let cMap = colorPayloads.get(myColorIndex);
@@ -501,6 +504,7 @@ $('colorBtn').addEventListener('click', async () => {
 
         collectColors(GLOBAL_RDS_TREE, 0, null);
 
+        // Klargjør data for Trimble Connect API via setObjectState
         for (const [colIdx, modelMap] of colorPayloads.entries()) {
             const modelObjectIds = [];
             for (const [mid, ids] of Object.entries(modelMap)) {
