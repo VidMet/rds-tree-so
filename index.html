@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Editor v1.6</title>
+  <title>RDS Editor v1.6.1</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -117,8 +117,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Editor <span class="version">v1.6</span></h1>
-    <p>Avansert skjemaredigering & Batch-eksport</p>
+    <h1>RDS Editor <span class="version">v1.6.1</span></h1>
+    <p>Hierarkisk redigering av løpenummer (m/ ObjID)</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   <button class="btn btn-primary" id="scanBtn" disabled>▶ Bygg RDS-tre</button>
@@ -126,7 +126,7 @@
 
 <div id="editPanel">
   <input type="text" id="newRunningNumber" class="input-field" placeholder="Nytt løp.nr (eks: 04)">
-  <button class="btn btn-primary" id="queueBtn" disabled>➕ Søk/erstatt (Markert)</button>
+  <button class="btn btn-primary" id="queueBtn" disabled>➕ Søk/erstatt (Markert i 3D)</button>
   <div style="flex-grow: 1;"></div>
   <button class="btn btn-danger" id="clearBtn" disabled>Tøm</button>
   <button class="btn btn-success" id="exportBtn" disabled>💾 Eksporter (0)</button>
@@ -140,12 +140,20 @@
 
 <div id="editModal" class="modal-overlay" style="display:none;">
     <div class="modal-box">
-        <h3 id="modalTitle">Rediger egenskaper</h3>
+        <h3 id="modalTitle">Endre løpenummer</h3>
         <p id="modalSubtitle"></p>
         <div id="modalWarning" style="display:none; font-size:11px; color:var(--blue); margin-bottom:12px; background:var(--blue-dim); padding:8px; border-radius:4px;">
-            Advarsel: Verdiene du fyller inn her vil overskrive eksisterende data for <b>ALLE</b> objektene i denne mappen. La feltet stå tomt for å beholde dagens verdi.
+            Advarsel: Dette vil erstatte løpenummeret på <b>ALLE</b> objektene i denne mappen.
         </div>
-        <div id="modalForm"></div>
+        <div id="modalForm">
+            <div class="modal-form-group">
+                <label>Nytt løpenummer</label>
+                <input type="text" id="modalRunningNumber" class="input-field" placeholder="Eks: 04">
+            </div>
+            <p style="font-size:10px; color:var(--muted); margin-top:8px;">
+               Dette vil automatisk bytte ut de siste sifrene i egenskapene "01. RDS-tag", "15. HHHnnnnn" og "16. HHHnnnnn navn", mens bokstavene forblir urørt.
+            </p>
+        </div>
         <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:20px;">
             <button class="btn btn-danger" onclick="closeModal()">Avbryt</button>
             <button class="btn btn-success" onclick="saveModal()">Lagre i kø</button>
@@ -158,8 +166,7 @@ let API = null;
 let EXPORT_QUEUE = [];
 let currentEditTargets = []; 
 
-// Egenskapene som skal vises i skjemaet
-const MODAL_EGENSKAPER = [
+const EGENSKAPER_SOM_SKAL_OPPDATERES = [
     "01. rds-tag", 
     "15. hhhnnnnn", 
     "16. hhhnnnnn navn"
@@ -194,7 +201,6 @@ function slaaSammen(props, nøkkel1, nøkkel2) {
     return "Udefinert";
 }
 
-// BYGG TRE (Oppdatert for å samle inn GUID direkte)
 $('scanBtn').addEventListener('click', async () => {
   if (!API) return;
   $('scanBtn').disabled = true;
@@ -236,7 +242,6 @@ $('scanBtn').addEventListener('click', async () => {
                    const valStr = p.value !== undefined && p.value !== null ? String(p.value).trim() : "";
                    if (valStr !== "") flatProps[nameLower] = valStr;
                    
-                   // Aggressiv GUID-søk
                    if (nameLower.includes("guid") || nameLower.includes("globalid") || nameLower === "objid") {
                        if (nameLower.includes("ifc") || nameLower === "globalid" || nameLower === "objid") {
                            globalId = valStr;
@@ -274,7 +279,7 @@ $('scanBtn').addEventListener('click', async () => {
                       modelId: mid, 
                       runtimeId: obj.id || obj.objectRuntimeId,
                       guid: globalId,
-                      flatProps: Object.assign({}, flatProps) // Tar vare på egenskapene for Modal-redigering
+                      flatProps: Object.assign({}, flatProps) 
                   });
               }
               gjeldendeNivå = gjeldendeNivå[nodensNavn].barn;
@@ -294,7 +299,6 @@ $('scanBtn').addEventListener('click', async () => {
   }
 });
 
-// UI OG EKSPORT LOGIKK
 function oppdaterUI() {
     const antall = EXPORT_QUEUE.length;
     $('exportBtn').innerText = `💾 Eksporter (${antall})`;
@@ -308,7 +312,6 @@ $('clearBtn').addEventListener('click', () => {
     setStatus('🗑️ Køen er tømt.', 'ok');
 });
 
-// Den gamle søk/erstatt funksjonen (beholdes for store batcher)
 $('queueBtn').addEventListener('click', async () => {
     const newNumber = $('newRunningNumber').value.trim();
     if (!newNumber) { alert("Du må skrive inn et nytt løpenummer først."); return; }
@@ -355,7 +358,7 @@ $('queueBtn').addEventListener('click', async () => {
                     gammelRdsTag: flatProps["01. rds-tag"] || "", egenskaperSomSkalEndres: {}
                 };
 
-                MODAL_EGENSKAPER.forEach(propName => {
+                EGENSKAPER_SOM_SKAL_OPPDATERES.forEach(propName => {
                     const gammelVerdi = flatProps[propName];
                     if (gammelVerdi) {
                         updateItem.egenskaperSomSkalEndres[propName] = gammelVerdi.replace(/\d{1,3}$/, newNumber);
@@ -385,38 +388,19 @@ $('exportBtn').addEventListener('click', () => {
 // MODAL FUNKSJONALITET
 function openModalForObject(obj) {
     currentEditTargets = [obj];
-    $('modalTitle').innerText = 'Rediger objekt';
+    $('modalTitle').innerText = 'Endre løpenummer for objekt';
     $('modalSubtitle').innerText = obj.navn;
     $('modalWarning').style.display = 'none';
-    
-    let html = '';
-    MODAL_EGENSKAPER.forEach(prop => {
-        const val = obj.flatProps[prop] || '';
-        html += `<div class="modal-form-group">
-                   <label>${prop.toUpperCase()}</label>
-                   <input type="text" class="input-field" data-prop="${prop}" value="${escapeHTML(val)}">
-                 </div>`;
-    });
-    $('modalForm').innerHTML = html;
+    $('modalRunningNumber').value = ''; // Nullstill input
     $('editModal').style.display = 'flex';
 }
 
 function openModalForFolder(nodeName, nodeData) {
     currentEditTargets = nodeData.objekter;
-    $('modalTitle').innerText = 'Batch-rediger mappe';
+    $('modalTitle').innerText = 'Batch-endre løpenummer for mappe';
     $('modalSubtitle').innerText = `${nodeName} (${currentEditTargets.length} objekter)`;
     $('modalWarning').style.display = 'block';
-    
-    const sampleObj = currentEditTargets[0];
-    let html = '';
-    MODAL_EGENSKAPER.forEach(prop => {
-        const sampleVal = sampleObj.flatProps[prop] || '';
-        html += `<div class="modal-form-group">
-                   <label>${prop.toUpperCase()} <span style="font-weight:normal;color:var(--muted);">(eks: ${escapeHTML(sampleVal)})</span></label>
-                   <input type="text" class="input-field" data-prop="${prop}" placeholder="Ny verdi for alle objektene...">
-                 </div>`;
-    });
-    $('modalForm').innerHTML = html;
+    $('modalRunningNumber').value = ''; // Nullstill input
     $('editModal').style.display = 'flex';
 }
 
@@ -425,32 +409,40 @@ function closeModal() {
 }
 
 function saveModal() {
-    const inputs = $('modalForm').querySelectorAll('input');
-    let changes = {};
-    let hasChanges = false;
-    
-    inputs.forEach(inp => {
-        const prop = inp.getAttribute('data-prop');
-        const val = inp.value.trim();
-        if (val !== "") { changes[prop] = val; hasChanges = true; }
-    });
-    
-    if (!hasChanges) { closeModal(); return; }
+    const newNumber = $('modalRunningNumber').value.trim();
+    if (!newNumber) {
+        closeModal(); 
+        return; 
+    }
+
+    let addedCount = 0;
 
     currentEditTargets.forEach(target => {
         EXPORT_QUEUE = EXPORT_QUEUE.filter(item => !(item.modelId === target.modelId && item.runtimeId === target.runtimeId));
+        
         const updateItem = {
             GUID: target.guid,
             modelId: target.modelId,
             runtimeId: target.runtimeId,
             gammelRdsTag: target.flatProps["01. rds-tag"] || "",
-            egenskaperSomSkalEndres: { ...changes }
+            egenskaperSomSkalEndres: {}
         };
-        EXPORT_QUEUE.push(updateItem);
+        
+        EGENSKAPER_SOM_SKAL_OPPDATERES.forEach(propName => {
+            const gammelVerdi = target.flatProps[propName];
+            if (gammelVerdi) {
+                updateItem.egenskaperSomSkalEndres[propName] = gammelVerdi.replace(/\d{1,3}$/, newNumber);
+            }
+        });
+
+        if (Object.keys(updateItem.egenskaperSomSkalEndres).length > 0) { 
+            EXPORT_QUEUE.push(updateItem); 
+            addedCount++; 
+        }
     });
 
     oppdaterUI();
-    setStatus(`✅ Lagret endringer i køen for ${currentEditTargets.length} objekter via skjema.`, 'ok');
+    setStatus(`✅ Lagret endringer i køen for ${addedCount} objekter via skjema.`, 'ok');
     closeModal();
 }
 
@@ -474,9 +466,8 @@ function tegnOppTre(treStruktur, container, erRot = true) {
         const headerDiv = document.createElement('div'); headerDiv.className = 'tree-header';
         const safeNøkkel = escapeHTML(nøkkel);
         
-        // Sjekk om dette er det laveste mappenivået (har objekter, men ingen undermapper)
         const erLavesteMappe = Object.keys(nodeData.barn).length === 0;
-        let editHtml = erLavesteMappe ? `<div class="tree-edit-btn" title="Rediger alle objekter i denne mappen">✏️</div>` : '';
+        let editHtml = erLavesteMappe ? `<div class="tree-edit-btn" title="Endre løpenummer for alle objekter i mappen">✏️</div>` : '';
 
         headerDiv.innerHTML = `<div class="tree-arrow">▶</div><div class="tree-title" title="${safeNøkkel}">${safeNøkkel}</div><div class="tree-count">${totaltAntall} obj</div>${editHtml}`;
         const childrenDiv = document.createElement('div'); childrenDiv.className = 'tree-children';
@@ -499,7 +490,7 @@ function tegnOppTre(treStruktur, container, erRot = true) {
         if (nodeData.objekter.length > 0) {
             nodeData.objekter.sort((a, b) => a.navn.localeCompare(b.navn)).forEach(obj => {
                 const objDiv = document.createElement('div'); objDiv.className = 'tree-object'; 
-                objDiv.innerHTML = `<div style="flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${obj.navn}">${obj.navn}</div><div class="tree-edit-btn" title="Rediger dette spesifikke objektet">✏️</div>`;
+                objDiv.innerHTML = `<div style="flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${obj.navn}">${obj.navn}</div><div class="tree-edit-btn" title="Endre løpenummer for dette spesifikke objektet">✏️</div>`;
                 
                 objDiv.onclick = async (e) => { e.stopPropagation(); try { if (API.viewer.setSelection) { await API.viewer.setSelection({ modelObjectIds: [{ modelId: obj.modelId, objectRuntimeIds: [Number(obj.runtimeId)] }] }, 'set'); } } catch(err) {} };
                 
