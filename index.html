@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Viewer & Editor v1.5</title>
+  <title>RDS Viewer & Editor v1.5.1</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -105,8 +105,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Viewer <span class="version">v1.5</span></h1>
-    <p>Hierarkisk visning & Batch-editering</p>
+    <h1>RDS Viewer <span class="version">v1.5.1</span></h1>
+    <p>Hierarkisk visning & Batch-editering (m/ ObjID)</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   <button class="btn btn-primary" id="scanBtn" disabled>▶ Bygg RDS-tre</button>
@@ -256,7 +256,6 @@ $('clearBtn').addEventListener('click', () => {
     setStatus('🗑️ Køen er tømt.', 'ok');
 });
 
-// AGGRESSIV GUID-JAKT
 $('queueBtn').addEventListener('click', async () => {
     const newNumber = $('newRunningNumber').value.trim();
     if (!newNumber) {
@@ -292,12 +291,10 @@ $('queueBtn').addEventListener('click', async () => {
                 const objRuntimeId = obj.id || obj.objectRuntimeId;
                 const flatProps = {}; 
                 
-                // 1. Sjekk roten av objektet. I mange IFC-filer legges GUID her av Connect.
                 if (obj.externalId) globalId = obj.externalId;
                 else if (obj.globalId) globalId = obj.globalId;
                 else if (obj.ifcGuid) globalId = obj.ifcGuid;
                 
-                // 2. Finkjem property-settene
                 if (obj.properties) {
                     for (const pset of obj.properties) {
                         (pset.properties || []).forEach(p => {
@@ -307,14 +304,11 @@ $('queueBtn').addEventListener('click', async () => {
                                 
                                 if (valStr !== "") flatProps[nameLower] = valStr;
 
-                                // Det aggressive søket: Finner alt med "guid" eller "globalid"
-                                if (nameLower.includes("guid") || nameLower.includes("globalid")) {
-                                    // Hvis vi treffer innertier (IFC), overskriv alt
-                                    if (nameLower.includes("ifc") || nameLower === "globalid") {
+                                // OPPDATERT: Søker nå også eksplisitt etter "objid"
+                                if (nameLower.includes("guid") || nameLower.includes("globalid") || nameLower === "objid") {
+                                    if (nameLower.includes("ifc") || nameLower === "globalid" || nameLower === "objid") {
                                         globalId = valStr;
-                                    } 
-                                    // Hvis vi ikke har noen GUID enda, ta det vi finner (f.eks. GUID (MS))
-                                    else if (globalId === "UKJENT_GUID") {
+                                    } else if (globalId === "UKJENT_GUID") {
                                         globalId = valStr;
                                     }
                                 }
@@ -323,9 +317,8 @@ $('queueBtn').addEventListener('click', async () => {
                     }
                 }
 
-                // FEILSØKING TIL CONSOLE: Hvis alt feiler, skriver den objektet til F12-konsollen
                 if (globalId === "UKJENT_GUID") {
-                    console.warn(`⚠️ Fant ikke GUID for objekt RuntimeID: ${objRuntimeId}. Her er all rådata for inspeksjon:`, obj);
+                    console.warn(`⚠️ Fant ikke GUID/ObjID for objekt RuntimeID: ${objRuntimeId}. Her er all rådata for inspeksjon:`, obj);
                 }
 
                 EXPORT_QUEUE = EXPORT_QUEUE.filter(item => !(item.modelId === mid && item.runtimeId === objRuntimeId));
@@ -334,7 +327,7 @@ $('queueBtn').addEventListener('click', async () => {
                     GUID: globalId,
                     modelId: mid,
                     runtimeId: objRuntimeId,
-                    gammelRdsTag: flatProps["01. rds-tag"] || "", // BACKUP: Vi lagrer den gamle verdien her!
+                    gammelRdsTag: flatProps["01. rds-tag"] || "",
                     egenskaperSomSkalEndres: {}
                 };
 
