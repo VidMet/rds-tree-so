@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v1.9.3</title>
+  <title>RDS Universal Editor v1.9.4</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -57,6 +57,7 @@
     .btn-primary { background: var(--blue); color: #ffffff; }
     .btn-success { background: var(--green); color: #ffffff; }
     .btn-danger { background: var(--surface2); color: var(--red); border: 1px solid var(--border); }
+    .btn-debug { background: #fef08a; color: #854d0e; border: 1px solid #eab308; }
 
     #editPanel { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
     .input-field { font-family: var(--mono); font-size: 12px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; width: 140px; }
@@ -124,8 +125,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v1.9.3</span></h1>
-    <p>Dyp datastøvsuging (Fanger opp alle lag)</p>
+    <h1>RDS Universal Editor <span class="version">v1.9.4</span></h1>
+    <p>Inkluderer feilsøkingsverktøy (Debug)</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   <button class="btn btn-primary" id="scanBtn" disabled>▶ Bygg RDS-tre</button>
@@ -135,6 +136,9 @@
   <input type="text" id="newRunningNumber" class="input-field" placeholder="Nytt løp.nr (eks: 04)">
   <button class="btn btn-primary" id="queueBtn" disabled>➕ Hurtigoppdater (Markert i 3D)</button>
   <div style="flex-grow: 1;"></div>
+  
+  <button class="btn btn-debug" id="debugBtn" title="Feilsøk hvorfor markert objekt ikke vises i treet" disabled>🐞</button>
+  
   <button class="btn btn-danger" id="clearBtn" disabled>Tøm</button>
   <button class="btn btn-success" id="exportBtn" disabled>💾 Eksporter (0)</button>
 </div>
@@ -150,7 +154,7 @@
         <h3 id="modalTitle">Rediger egenskaper</h3>
         <p id="modalSubtitle"></p>
         <div id="modalWarning" style="display:none; font-size:11px; color:var(--blue); margin-bottom:12px; background:var(--blue-dim); padding:8px; border-radius:4px;">
-            Advarsel: Verdier du endrer her vil oppdateres for <b>ALLE</b> objektene i mappen. Felt som står blanke betyr at objektene har ulike verdier. Lar du feltet stå blankt, endres ingenting.
+            Advarsel: Verdier du endrer her vil oppdateres for <b>ALLE</b> objektene i mappen.
         </div>
         <div id="modalForm"></div>
         <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:20px;">
@@ -190,6 +194,7 @@ async function connect(){
     API = await window.TrimbleConnectWorkspace.connect(window.parent);
     $('scanBtn').disabled = false;
     $('queueBtn').disabled = false;
+    $('debugBtn').disabled = false; // Aktiverer Debug-knappen
     $('modelBadge').textContent = 'Tilkoblet';
     setStatus('✅ Klar til å skanne.', 'ok');
   } catch(e) { 
@@ -205,6 +210,66 @@ function slaaSammen(props, nøkkel1, nøkkel2) {
     if (val2) return val2;
     return "Udefinert";
 }
+
+// -----------------------------------------------------
+// NY FEILSØKINGS-FUNKSJON (DEBUGGER)
+// -----------------------------------------------------
+$('debugBtn').addEventListener('click', async () => {
+    try {
+        setStatus('⏳ Feilsøker markert objekt...');
+        const selection = await API.viewer.getSelection();
+        
+        if (!selection || selection.length === 0 || !selection[0].objectRuntimeIds || selection[0].objectRuntimeIds.length === 0) {
+            alert("Feil: Du må markere ett av de manglende objektene i 3D-modellen først!");
+            setStatus('⚠️ Ingenting markert for feilsøking.', 'warn');
+            return;
+        }
+
+        const mid = selection[0].modelId;
+        const rIds = selection[0].objectRuntimeIds;
+        
+        const propsArr = await API.viewer.getObjectProperties(mid, rIds);
+        
+        console.log("🐞 RÅDATA FOR MARKERT OBJEKT (Sjekk F12/Console):", propsArr);
+        
+        if (!propsArr || propsArr.length === 0) {
+            alert("Kritisk feil: Trimble Connect-APIet returnerer INGEN egenskaper for dette objektet. Det eksisterer kun som en grafisk form (Ghost object).");
+            return;
+        }
+
+        let debugMsg = "--- FEILSØKINGSRAPPORT ---\n(All data er også printet i F12 Console)\n\n";
+
+        propsArr.forEach(obj => {
+            let foundPropsCount = 0;
+            let foundNames = [];
+            
+            (obj.properties || []).forEach(pset => {
+                (pset.properties || []).forEach(p => {
+                    const nameLower = p.name.trim().toLowerCase();
+                    // Leter etter alt som kan ligne på det skriptet vårt forventer
+                    if (nameLower.includes("rds") || nameLower.match(/^\d{2}\./)) {
+                        foundNames.push(`"${p.name}": "${p.value}"`);
+                        foundPropsCount++;
+                    }
+                });
+            });
+
+            if (foundPropsCount === 0) {
+                debugMsg += `❌ Objekt ID ${obj.id || obj.objectRuntimeId}: \nAPIet finner ingen egenskaper som starter med tall (f.eks "01.") eller inneholder "rds".\n\n`;
+            } else {
+                debugMsg += `⚠️ Objekt ID ${obj.id || obj.objectRuntimeId} HAR lignende egenskaper, men navnet avviker kanskje fra skriptet vårt:\n\n${foundNames.join('\n')}\n\n`;
+            }
+        });
+
+        alert(debugMsg);
+        setStatus('✅ Feilsøking utført.', 'ok');
+
+    } catch (e) {
+        alert("Klarte ikke feilsøke: " + e.message);
+        setStatus('❌ Feil under feilsøking.', 'error');
+    }
+});
+
 
 function updateEditedIndicators() {
     const queuedIds = new Set(EXPORT_QUEUE.map(q => `${q.modelId}_${q.runtimeId}`));
@@ -262,14 +327,11 @@ $('scanBtn').addEventListener('click', async () => {
       const seenIds = new Set();
       const visitedObjects = new Set();
       
-      // V1.9.3: UNIVERSELL REKURSIV DATASTØVSUGER
-      // Scanner absolutt alle kriker og kroker i JSON-strukturen etter ID-er
       function støvsugData(obj) {
           if (!obj || typeof obj !== 'object') return;
           if (visitedObjects.has(obj)) return;
           visitedObjects.add(obj);
           
-          // Sjekk om denne noden har en ID uansett hvor den bor
           const rId = obj.id || obj.objectRuntimeId || obj.runtimeId || obj.runtimeid;
           if (rId != null && (typeof rId === 'number' || typeof rId === 'string')) {
               const idNum = Number(rId);
@@ -279,7 +341,6 @@ $('scanBtn').addEventListener('click', async () => {
               }
           }
           
-          // Bla igjennom alle egenskaper dynamisk
           for (const key in obj) {
               if (obj.hasOwnProperty(key) && obj[key]) {
                   const val = obj[key];
@@ -294,7 +355,6 @@ $('scanBtn').addEventListener('click', async () => {
           }
       }
       
-      // Kjører støvsugeren på hele modellen inkludert rot-egenskapene
       støvsugData(model);
       
       for (let i = 0; i < objectIds.length; i += CHUNK) {
@@ -393,6 +453,96 @@ $('scanBtn').addEventListener('click', async () => {
     setStatus(`❌ Feil under skanning: ${error.message}`, 'error');
     $('scanBtn').disabled = false;
   }
+});
+
+function oppdaterUI() {
+    const antall = EXPORT_QUEUE.length;
+    $('exportBtn').innerText = `💾 Eksporter (${antall})`;
+    $('exportBtn').disabled = antall === 0;
+    $('clearBtn').disabled = antall === 0;
+}
+
+$('clearBtn').addEventListener('click', () => {
+    EXPORT_QUEUE = [];
+    oppdaterUI();
+    updateEditedIndicators();
+    setStatus('🗑️ Køen er tømt.', 'ok');
+});
+
+$('queueBtn').addEventListener('click', async () => {
+    const newNumber = $('newRunningNumber').value.trim();
+    if (!newNumber) { alert("Du må skrive inn et nytt løpenummer først."); return; }
+    try {
+        setStatus('⏳ Henter markering...');
+        const selection = await API.viewer.getSelection();
+        let totalSelected = 0;
+        if (selection && selection.length > 0) selection.forEach(sel => { if (sel.objectRuntimeIds) totalSelected += sel.objectRuntimeIds.length; });
+        if (totalSelected === 0) { setStatus('⚠️ Ingen objekter er markert.', 'warn'); return; }
+
+        let addedCount = 0;
+        for (const sel of selection) {
+            const mid = sel.modelId;
+            const runtimeIds = sel.objectRuntimeIds; 
+            if (!runtimeIds || runtimeIds.length === 0) continue;
+            const propsArr = await API.viewer.getObjectProperties(mid, runtimeIds);
+            propsArr.forEach(obj => {
+                let globalId = "UKJENT_GUID";
+                const objRuntimeId = obj.id || obj.objectRuntimeId;
+                const flatProps = {}; 
+                
+                if (obj.properties) {
+                    for (const pset of obj.properties) {
+                        (pset.properties || []).forEach(p => {
+                            if (p.name) {
+                                const nameLower = p.name.trim().toLowerCase();
+                                const valStr = p.value !== undefined && p.value !== null ? String(p.value).trim() : "";
+                                if (valStr !== "") flatProps[nameLower] = valStr;
+                                if (nameLower.includes("guid") || nameLower.includes("globalid") || nameLower === "objid") {
+                                    if (nameLower.includes("ifc") || nameLower === "globalid" || nameLower === "objid") globalId = valStr;
+                                    else if (globalId === "UKJENT_GUID") globalId = valStr;
+                                }
+                            }
+                        });
+                    }
+                }
+
+                EXPORT_QUEUE = EXPORT_QUEUE.filter(item => !(item.modelId === mid && item.runtimeId === objRuntimeId));
+                const updateItem = {
+                    GUID: globalId, modelId: mid, runtimeId: objRuntimeId,
+                    gammelRdsTag: flatProps["01. rds-tag"] || "", egenskaperSomSkalEndres: {}
+                };
+
+                LOPENUMMER_EGENSKAPER.forEach(propName => {
+                    const gammelVerdi = flatProps[propName];
+                    if (gammelVerdi) updateItem.egenskaperSomSkalEndres[propName] = gammelVerdi.replace(/\d{1,3}$/, newNumber);
+                });
+
+                if (Object.keys(updateItem.egenskaperSomSkalEndres).length > 0) { EXPORT_QUEUE.push(updateItem); addedCount++; }
+            });
+        }
+        oppdaterUI(); 
+        updateEditedIndicators();
+        setStatus(`✅ La til ${addedCount} objekter via hurtigoppdatering.`, 'ok');
+    } catch (error) { setStatus(`❌ Feil: ${error.message}`, 'error'); }
+});
+
+$('exportBtn').addEventListener('click', () => {
+    if (EXPORT_QUEUE.length === 0) return;
+    try {
+        const jsonString = JSON.stringify(EXPORT_QUEUE, null, 2);
+        const blob = new Blob([jsonString], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = `rds_batch_update_flere.json`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+        
+        const antallEksportert = EXPORT_QUEUE.length;
+        EXPORT_QUEUE = [];
+        oppdaterUI();
+        updateEditedIndicators();
+        
+        setStatus(`🎉 Eksporterte JSON-fil med ${antallEksportert} endringer. Køen er tømt.`, 'ok');
+    } catch (error) { setStatus(`❌ Feil under eksport: ${error.message}`, 'error'); }
 });
 
 function openModalForObject(obj) {
