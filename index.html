@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v2.3</title>
+  <title>RDS Universal Editor v2.4</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -76,7 +76,7 @@
     
     .tree-header { display: flex; align-items: center; padding: 6px 8px; cursor: pointer; border-radius: 6px; transition: background 0.1s; margin-top: 2px; user-select: none; }
     .tree-header:hover { background: var(--bg); }
-    .tree-header.active { background: var(--surface2); }
+    .tree-header.active { background: var(--surface2); border: 1px dashed var(--muted); }
     
     .tree-arrow { font-size: 10px; color: var(--muted); width: 16px; text-align: center; margin-right: 4px; }
     .tree-title { flex: 1; font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -125,8 +125,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v2.3</span></h1>
-    <p>Inkluderer 100% skanning via 3D-markering</p>
+    <h1>RDS Universal Editor <span class="version">v2.4</span></h1>
+    <p>Støtter Multi-Select via Ctrl og Shift</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -168,7 +168,7 @@
 let API = null;
 let EXPORT_QUEUE = [];
 let currentEditTargets = []; 
-let activeTreeElement = null; 
+let lastClickedElement = null; // Husker siste rad for Shift-valg
 
 const LOPENUMMER_EGENSKAPER = [
     "01. rds-tag", 
@@ -242,12 +242,38 @@ function updateEditedIndicators() {
     });
 }
 
+// NY MULTI-SELEKT SYNKRONISERING MOT 3D-VISER
+async function sync3DSelection() {
+    const activeElements = document.querySelectorAll('.tree-header.active, .tree-object.active');
+    let combinedMap = {}; 
+    
+    activeElements.forEach(el => {
+        if (el._modelObjectIds) {
+            el._modelObjectIds.forEach(sel => {
+                if (!combinedMap[sel.modelId]) combinedMap[sel.modelId] = new Set();
+                sel.objectRuntimeIds.forEach(id => combinedMap[sel.modelId].add(id));
+            });
+        }
+    });
+    
+    const modelObjectIds = Object.keys(combinedMap).map(mid => ({
+        modelId: mid,
+        objectRuntimeIds: Array.from(combinedMap[mid])
+    }));
+    
+    try {
+        if (API.viewer.setSelection) {
+            await API.viewer.setSelection({ modelObjectIds: modelObjectIds }, 'set');
+        }
+    } catch(err) { console.warn("Feil ved multisynkronisering", err); }
+}
+
 async function kjorSkanner(mode) {
     if (!API) return;
     $('scanBtn').disabled = true;
     $('scanSelBtn').disabled = true;
     $('mainContent').innerHTML = '';
-    activeTreeElement = null;
+    lastClickedElement = null;
 
     try {
         let targetMap = {}; 
@@ -701,30 +727,41 @@ function tegnOppTre(treStruktur, container, erRot = true) {
         const safeNøkkel = escapeHTML(nøkkel);
         
         const erLavesteMappe = Object.keys(nodeData.barn).length === 0;
-        
         const alleIds = nodeData.objekter.map(o => `${o.modelId}_${o.runtimeId}`).join(',');
         let editHtml = erLavesteMappe ? `<div class="tree-edit-btn" data-folder-ids="${alleIds}" title="Endre egenskaper for alle objekter i mappen">✏️</div>` : '';
 
         headerDiv.innerHTML = `<div class="tree-arrow">▶</div><div class="tree-title" title="${safeNøkkel}">${safeNøkkel}</div><div class="tree-count">${totaltAntall} obj</div>${editHtml}`;
         const childrenDiv = document.createElement('div'); childrenDiv.className = 'tree-children';
         
+        // Lagre IDer for 3D-synkronisering direkte på elementet
+        headerDiv._modelObjectIds = formaterForMarkering(hentAlleIds(nodeData));
+
         headerDiv.onclick = async (e) => {
             e.stopPropagation();
             
-            if (activeTreeElement) activeTreeElement.classList.remove('active');
-            headerDiv.classList.add('active');
-            activeTreeElement = headerDiv;
+            // HÅNDTER MULTI-SELEKT KLASSELOGIKK (Mappe)
+            const allRows = Array.from(document.querySelectorAll('.tree-header, .tree-object'));
+            if (!e.ctrlKey && !e.shiftKey) {
+                allRows.forEach(r => r.classList.remove('active'));
+                headerDiv.classList.add('active');
+                lastClickedElement = headerDiv;
+            } else if (e.ctrlKey) {
+                headerDiv.classList.toggle('active');
+                lastClickedElement = headerDiv;
+            } else if (e.shiftKey && lastClickedElement) {
+                const start = allRows.indexOf(lastClickedElement);
+                const end = allRows.indexOf(headerDiv);
+                const min = Math.min(start, end); const max = Math.max(start, end);
+                for (let i = min; i <= max; i++) { allRows[i].classList.add('active'); }
+            }
 
-            const isOpen = childrenDiv.style.display === 'block'; childrenDiv.style.display = isOpen ? 'none' : 'block';
-            headerDiv.querySelector('.tree-arrow').innerText = isOpen ? '▼' : '▶';
+            // Åpne/lukke skjer kun hvis man ikke gjør Shift-områdevalg
+            if (!e.shiftKey) {
+                const isOpen = childrenDiv.style.display === 'block'; childrenDiv.style.display = isOpen ? 'none' : 'block';
+                headerDiv.querySelector('.tree-arrow').innerText = isOpen ? '▼' : '▶';
+            }
             
-            // FIKSET KORREKT SYNTAX: { modelObjectIds: ... }, 'set'
-            const alleIdsForMarkering = formaterForMarkering(hentAlleIds(nodeData));
-            try { 
-                if (API.viewer.setSelection && alleIdsForMarkering.length > 0) { 
-                    await API.viewer.setSelection({ modelObjectIds: alleIdsForMarkering }, 'set'); 
-                } 
-            } catch(err) { console.warn("Feil ved markering", err); }
+            await sync3DSelection();
         };
 
         if (erLavesteMappe) {
@@ -739,19 +776,29 @@ function tegnOppTre(treStruktur, container, erRot = true) {
                 const objDiv = document.createElement('div'); objDiv.className = 'tree-object'; 
                 objDiv.innerHTML = `<div style="flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${obj.navn}">${obj.navn}</div><div class="tree-edit-btn" data-id="${obj.modelId}_${obj.runtimeId}" title="Endre egendefinerte egenskaper">✏️</div>`;
                 
+                // Lagre ID for 3D-synkronisering direkte på elementet
+                objDiv._modelObjectIds = [{ modelId: obj.modelId, objectRuntimeIds: [Number(obj.runtimeId)] }];
+
                 objDiv.onclick = async (e) => { 
                     e.stopPropagation(); 
                     
-                    if (activeTreeElement) activeTreeElement.classList.remove('active');
-                    objDiv.classList.add('active');
-                    activeTreeElement = objDiv;
+                    // HÅNDTER MULTI-SELEKT KLASSELOGIKK (Objekt)
+                    const allRows = Array.from(document.querySelectorAll('.tree-header, .tree-object'));
+                    if (!e.ctrlKey && !e.shiftKey) {
+                        allRows.forEach(r => r.classList.remove('active'));
+                        objDiv.classList.add('active');
+                        lastClickedElement = objDiv;
+                    } else if (e.ctrlKey) {
+                        objDiv.classList.toggle('active');
+                        lastClickedElement = objDiv;
+                    } else if (e.shiftKey && lastClickedElement) {
+                        const start = allRows.indexOf(lastClickedElement);
+                        const end = allRows.indexOf(objDiv);
+                        const min = Math.min(start, end); const max = Math.max(start, end);
+                        for (let i = min; i <= max; i++) { allRows[i].classList.add('active'); }
+                    }
 
-                    // FIKSET KORREKT SYNTAX: { modelObjectIds: ... }, 'set'
-                    try { 
-                        if (API.viewer.setSelection && obj.runtimeId != null) { 
-                            await API.viewer.setSelection({ modelObjectIds: [{ modelId: obj.modelId, objectRuntimeIds: [Number(obj.runtimeId)] }] }, 'set'); 
-                        } 
-                    } catch(err) { console.warn("Feil ved markering", err); } 
+                    await sync3DSelection();
                 };
                 
                 const objEditBtn = objDiv.querySelector('.tree-edit-btn');
