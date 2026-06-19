@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v2.1</title>
+  <title>RDS Universal Editor v2.2</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -131,7 +131,7 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v2.1</span></h1>
+    <h1>RDS Universal Editor <span class="version">v2.2</span></h1>
     <p>Inkluderer 100% skanning via 3D-markering</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
@@ -259,7 +259,7 @@ async function kjorSkanner(mode) {
     activeTreeElement = null;
 
     try {
-        let targetMap = {}; // { modelId: [id1, id2...] }
+        let targetMap = {}; 
 
         if (mode === 'all') {
             setStatus('⏳ Henter modellstruktur...');
@@ -317,7 +317,6 @@ async function kjorSkanner(mode) {
                 const propsArr = await API.viewer.getObjectProperties(mid, chunk);
                 
                 propsArr.forEach((obj, index) => {
-                    // DEN VIKTIGSTE LINJEN: Låner ID fra chunk dersom Trimble Connect "glemmer" den!
                     const actualRuntimeId = obj.id || obj.objectRuntimeId || chunk[index];
                     
                     let globalId = "UKJENT_GUID";
@@ -679,12 +678,30 @@ function saveModal() {
 }
 
 function tellObjekter(nodeMap) { let count = nodeMap.objekter.length; for (const key in nodeMap.barn) { count += tellObjekter(nodeMap.barn[key]); } return count; }
-function hentAlleIds(nodeMap) { let idMap = {}; nodeMap.objekter.forEach(obj => { if (!idMap[obj.modelId] || obj.runtimeId === null) return; if (!idMap[obj.modelId]) idMap[obj.modelId] = []; idMap[obj.modelId].push(Number(obj.runtimeId)); }); for (const key in nodeMap.barn) { const barnIds = hentAlleIds(nodeMap.barn[key]); for (const mid in barnIds) { if (!idMap[mid]) idMap[mid] = []; idMap[mid].push(...barnIds[mid]); } } return idMap; }
+
+// LOGISK FEIL RETTET HER! Sjekker kun at runtimeId finnes, ignorerer ikke hvis idMap er tom.
+function hentAlleIds(nodeMap) { 
+    let idMap = {}; 
+    nodeMap.objekter.forEach(obj => { 
+        if (obj.runtimeId == null) return; 
+        if (!idMap[obj.modelId]) idMap[obj.modelId] = []; 
+        idMap[obj.modelId].push(Number(obj.runtimeId)); 
+    }); 
+    for (const key in nodeMap.barn) { 
+        const barnIds = hentAlleIds(nodeMap.barn[key]); 
+        for (const mid in barnIds) { 
+            if (!idMap[mid]) idMap[mid] = []; 
+            idMap[mid].push(...barnIds[mid]); 
+        } 
+    } 
+    return idMap; 
+}
+
 function formaterForMarkering(idMap) { return Object.keys(idMap).map(mid => ({ modelId: mid, objectRuntimeIds: idMap[mid] })); }
 
 function tegnOppTre(treStruktur, container, erRot = true) {
     const nøkler = Object.keys(treStruktur).sort();
-    if (nøkler.length === 0 && erRot) { container.innerHTML = '<div class="empty anim">Fant ingen objekter med RDS-egenskaper i denne skanningen.</div>'; return; }
+    if (nøkler.length === 0 && erRot) { container.innerHTML = '<div class="empty anim">Fant ingen objekter med RDS-egenskaper.</div>'; return; }
     const wrapper = document.createElement('div');
     if (erRot) { wrapper.className = 'tree-container anim'; container.appendChild(wrapper); }
     
@@ -704,7 +721,6 @@ function tegnOppTre(treStruktur, container, erRot = true) {
 
         headerDiv.innerHTML = `<div class="tree-arrow">▶</div><div class="tree-title" title="${safeNøkkel}">${safeNøkkel}</div><div class="tree-count">${totaltAntall} obj</div>${editHtml}`;
         const childrenDiv = document.createElement('div'); childrenDiv.className = 'tree-children';
-        const alleIdsForMarkering = formaterForMarkering(hentAlleIds(nodeData));
         
         headerDiv.onclick = async (e) => {
             e.stopPropagation();
@@ -715,7 +731,14 @@ function tegnOppTre(treStruktur, container, erRot = true) {
 
             const isOpen = childrenDiv.style.display === 'block'; childrenDiv.style.display = isOpen ? 'none' : 'block';
             headerDiv.querySelector('.tree-arrow').innerText = isOpen ? '▼' : '▶';
-            try { if (API.viewer.setSelection && alleIdsForMarkering.length > 0) { await API.viewer.setSelection({ modelObjectIds: alleIdsForMarkering }, 'set'); } } catch(err) {}
+            
+            // SIKKER MARKERING KALL
+            const alleIdsForMarkering = formaterForMarkering(hentAlleIds(nodeData));
+            try { 
+                if (API.viewer.setSelection && alleIdsForMarkering.length > 0) { 
+                    await API.viewer.setSelection(alleIdsForMarkering); 
+                } 
+            } catch(err) { console.warn("Feil ved markering av mappe", err); }
         };
 
         if (erLavesteMappe) {
@@ -737,7 +760,12 @@ function tegnOppTre(treStruktur, container, erRot = true) {
                     objDiv.classList.add('active');
                     activeTreeElement = objDiv;
 
-                    try { if (API.viewer.setSelection && obj.runtimeId !== null) { await API.viewer.setSelection({ modelObjectIds: [{ modelId: obj.modelId, objectRuntimeIds: [Number(obj.runtimeId)] }] }, 'set'); } } catch(err) {} 
+                    // SIKKER MARKERING KALL
+                    try { 
+                        if (API.viewer.setSelection && obj.runtimeId != null) { 
+                            await API.viewer.setSelection([{ modelId: obj.modelId, objectRuntimeIds: [Number(obj.runtimeId)] }]); 
+                        } 
+                    } catch(err) { console.warn("Feil ved markering av objekt", err); } 
                 };
                 
                 const objEditBtn = objDiv.querySelector('.tree-edit-btn');
