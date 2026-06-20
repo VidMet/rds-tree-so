@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.2</title>
+  <title>RDS Universal Editor v3.3</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -137,8 +137,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v3.2</span></h1>
-    <p>Fargelegging trukket opp til GGG-nivået</p>
+    <h1>RDS Universal Editor <span class="version">v3.3</span></h1>
+    <p>Fargelegging på H-nivå med fargeikoner på mapper</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -150,7 +150,7 @@
   <input type="text" id="newRunningNumber" class="input-field" placeholder="Nytt løp.nr (eks: 04)">
   <button class="btn btn-primary" id="queueBtn" disabled>➕ Hurtigoppdater</button>
   
-  <button class="btn btn-color" id="colorBtn" title="Fargelegg GGG-grupperinger" disabled>🎨 Fargelegg (GGG)</button>
+  <button class="btn btn-color" id="colorBtn" title="Fargelegg HHH-grupperinger" disabled>🎨 Fargelegg (HHH)</button>
   <button class="btn btn-color-reset" id="resetColorBtn" title="Fjern farger" style="display:none;">💧</button>
   
   <div style="flex-grow: 1;"></div>
@@ -292,17 +292,26 @@ function updateColorIndicatorsUI() {
     document.querySelectorAll('.tree-header').forEach(header => {
         const idsStr = header.getAttribute('data-folder-ids');
         const ind = header.querySelector('.color-indicator');
-        if (!idsStr || !ind) return;
+        
+        if (!idsStr || !ind) {
+            if (ind) ind.style.display = 'none';
+            return;
+        }
         
         const ids = idsStr.split(',');
         let firstColor = null;
         let allSame = true;
         
-        for(let id of ids) {
-            const c = window.assignedColorsMap.get(id);
-            if (!c) { allSame = false; break; }
-            if (!firstColor) firstColor = c;
-            else if (firstColor !== c) { allSame = false; break; }
+        if (ids.length === 0 || ids[0] === "") {
+            allSame = false;
+        } else {
+            for(let id of ids) {
+                if(!id) continue;
+                const c = window.assignedColorsMap.get(id);
+                if (!c) { allSame = false; break; }
+                if (!firstColor) firstColor = c;
+                else if (firstColor !== c) { allSame = false; break; }
+            }
         }
         
         if (allSame && firstColor) {
@@ -519,7 +528,7 @@ $('scanBtn').addEventListener('click', () => kjorSkanner('all'));
 $('scanSelBtn').addEventListener('click', () => kjorSkanner('selection'));
 
 // -----------------------------------------------------
-// FARGELEGGINGS-MOTOR MED GGG-NIVÅ (DEPTH 6)
+// FARGELEGGINGS-MOTOR (OPPDATERT TIL HHH OG CNN-RESET)
 // -----------------------------------------------------
 $('colorBtn').addEventListener('click', async () => {
     if (!API) return;
@@ -552,18 +561,18 @@ $('colorBtn').addEventListener('click', async () => {
 
                 // Nivå 3: Cnn (Nullstill paletten!) - indeks 2
                 if (depth === 2) { 
-                    nextTracker = { index: 0, usedTarget: new Map() };
+                    nextTracker = { index: 0, usedHhh: new Map() };
                 }
 
                 let myColorIndex = -1;
                 
-                // Nivå 7: GGGnnn (Tildel farge) - indeks 6
-                if (depth === 6 && nextTracker) { 
-                    if (!nextTracker.usedTarget.has(key)) {
-                        nextTracker.usedTarget.set(key, nextTracker.index++);
+                // Nivå 8: HHHnnnnn (Tildel farge) - indeks 7
+                if (depth === 7 && nextTracker) { 
+                    if (!nextTracker.usedHhh.has(key)) {
+                        nextTracker.usedHhh.set(key, nextTracker.index++);
                     }
-                    myColorIndex = nextTracker.usedTarget.get(key) % PALETTE.length;
-                } else if (depth > 6 && currentTracker) {
+                    myColorIndex = nextTracker.usedHhh.get(key) % PALETTE.length;
+                } else if (depth > 7 && currentTracker) {
                     myColorIndex = currentTracker.myColorIndex; 
                 }
 
@@ -584,7 +593,7 @@ $('colorBtn').addEventListener('click', async () => {
                     });
                 }
 
-                if (depth === 6) {
+                if (depth === 7) {
                     nextTracker = { ...nextTracker, myColorIndex: myColorIndex };
                 }
                 
@@ -911,14 +920,22 @@ function tegnOppTre(treStruktur, container, erRot = true) {
         const safeNøkkel = escapeHTML(nøkkel);
         
         const erLavesteMappe = Object.keys(nodeData.barn).length === 0;
-        const alleIds = nodeData.objekter.map(o => `${o.modelId}_${o.runtimeId}`).join(',');
-        let editHtml = erLavesteMappe ? `<div class="tree-edit-btn" data-folder-ids="${alleIds}" title="Endre egenskaper for alle objekter i mappen">✏️</div>` : '';
+        
+        // HENTER ID-ENE FRA HELE MAPPEN FOR FARGEOPPDATERINGEN
+        const allIdsMap = hentAlleIds(nodeData);
+        let allIdsFlat = [];
+        for (const mid in allIdsMap) {
+            allIdsMap[mid].forEach(rid => allIdsFlat.push(`${mid}_${rid}`));
+        }
+        const idsString = allIdsFlat.join(',');
+        
+        headerDiv.setAttribute('data-folder-ids', idsString);
+        let editHtml = erLavesteMappe ? `<div class="tree-edit-btn" title="Endre egenskaper for alle objekter i mappen">✏️</div>` : '';
 
-        headerDiv.setAttribute('data-folder-ids', alleIds);
         headerDiv.innerHTML = `<div class="tree-arrow">▶</div><div class="color-indicator"></div><div class="tree-title" title="${safeNøkkel}">${safeNøkkel}</div><div class="tree-count">${totaltAntall} obj</div>${editHtml}`;
         const childrenDiv = document.createElement('div'); childrenDiv.className = 'tree-children';
         
-        headerDiv._modelObjectIds = formaterForMarkering(hentAlleIds(nodeData));
+        headerDiv._modelObjectIds = formaterForMarkering(allIdsMap);
 
         headerDiv.onclick = async (e) => {
             e.stopPropagation();
