@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.5</title>
+  <title>RDS Universal Editor v3.6</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -128,8 +128,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v3.5</span></h1>
-    <p>Legg til egendefinerte og manglende egenskaper</p>
+    <h1>RDS Universal Editor <span class="version">v3.6</span></h1>
+    <p>Legg til manglende egenskaper & Tøm 2_RDS raskt</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -173,9 +173,12 @@
             </div>
         </div>
         
-        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:20px;">
-            <button class="btn btn-danger" onclick="closeModal()">Avbryt</button>
-            <button class="btn btn-success" onclick="saveModal()">Lagre i kø</button>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:20px;">
+            <button class="btn btn-danger" onclick="clearRdsProperties()">🧹 Tøm 2_RDS</button>
+            <div style="display:flex; gap:8px;">
+                <button class="btn btn-danger" onclick="closeModal()">Avbryt</button>
+                <button class="btn btn-success" onclick="saveModal()">Lagre i kø</button>
+            </div>
         </div>
     </div>
 </div>
@@ -748,7 +751,28 @@ $('exportBtn').addEventListener('click', () => {
     } catch (error) { setStatus(`❌ Feil under eksport: ${error.message}`, 'error'); }
 });
 
-// NY FUNKSJON FOR Å LEGGE TIL EGENSKAP MANUELT
+// NY FUNKSJON FOR Å TØMME ALLE EGENSKAPER I 2_RDS
+window.clearRdsProperties = function() {
+    let rdsGroup = null;
+    const detailsElements = $('modalForm').querySelectorAll('details');
+    detailsElements.forEach(det => {
+        if (det.querySelector('.pset-summary').innerText === '2_RDS') {
+            rdsGroup = det.querySelector('.pset-content');
+        }
+    });
+    
+    if (rdsGroup) {
+        const inputs = rdsGroup.querySelectorAll('input.input-field');
+        inputs.forEach(inp => {
+            inp.value = '';
+            inp.style.backgroundColor = 'var(--red-dim)';
+            setTimeout(() => inp.style.backgroundColor = '', 500);
+        });
+    } else {
+        alert("Fant ingen 2_RDS gruppe å tømme for dette objektet/mappen.");
+    }
+};
+
 window.addCustomPropToForm = function() {
     const nameInp = $('newPropName');
     const valInp = $('newPropValue');
@@ -906,7 +930,7 @@ function saveModal() {
         const originalVal = inp.getAttribute('data-original-value');
 
         if (originalVal === "__MIXED__" || originalVal === "__NEW__") {
-            if (newVal !== "") { plannedChanges[propName] = newVal; } // Eksporterer med NØYAKTIG casing du skrev inn
+            if (newVal !== "") { plannedChanges[propName] = newVal; } 
         } else {
             if (newVal !== originalVal) { plannedChanges[propName] = newVal; }
         }
