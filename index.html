@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.3</title>
+  <title>RDS Universal Editor v3.4</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -137,8 +137,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v3.3</span></h1>
-    <p>Fargelegging på H-nivå med fargeikoner på mapper</p>
+    <h1>RDS Universal Editor <span class="version">v3.4</span></h1>
+    <p>Låst fargeboks til HHH-nivået</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -291,10 +291,19 @@ function updateColorIndicatorsUI() {
 
     document.querySelectorAll('.tree-header').forEach(header => {
         const idsStr = header.getAttribute('data-folder-ids');
+        const depth = parseInt(header.getAttribute('data-depth'), 10);
+        const titleText = header.querySelector('.tree-title').textContent;
         const ind = header.querySelector('.color-indicator');
         
         if (!idsStr || !ind) {
             if (ind) ind.style.display = 'none';
+            return;
+        }
+        
+        // STOPP FARGEBOKSEN FRA Å SPRE SEG OPPOVER!
+        // Tillater kun fargeboks på selve HHH-nivået (depth 7) eller Ghost-mappen
+        if (depth !== 7 && titleText !== UTEN_RDS_MAPPE_NAVN) {
+            ind.style.display = 'none';
             return;
         }
         
@@ -528,7 +537,8 @@ $('scanBtn').addEventListener('click', () => kjorSkanner('all'));
 $('scanSelBtn').addEventListener('click', () => kjorSkanner('selection'));
 
 // -----------------------------------------------------
-// FARGELEGGINGS-MOTOR (OPPDATERT TIL HHH OG CNN-RESET)
+// FARGELEGGINGS-MOTOR PÅ H-NIVÅ (DEPTH 7) 
+// MED RESET PÅ C-NIVÅ (DEPTH 2)
 // -----------------------------------------------------
 $('colorBtn').addEventListener('click', async () => {
     if (!API) return;
@@ -898,7 +908,8 @@ function hentAlleIds(nodeMap) {
 
 function formaterForMarkering(idMap) { return Object.keys(idMap).map(mid => ({ modelId: mid, objectRuntimeIds: idMap[mid] })); }
 
-function tegnOppTre(treStruktur, container, erRot = true) {
+// SENDER INN DEPTH SOM EN VARIABEL HER
+function tegnOppTre(treStruktur, container, erRot = true, currentDepth = 0) {
     let nøkler = Object.keys(treStruktur).sort(naturligSortering);
     
     if (erRot && nøkler.includes(UTEN_RDS_MAPPE_NAVN)) {
@@ -920,8 +931,6 @@ function tegnOppTre(treStruktur, container, erRot = true) {
         const safeNøkkel = escapeHTML(nøkkel);
         
         const erLavesteMappe = Object.keys(nodeData.barn).length === 0;
-        
-        // HENTER ID-ENE FRA HELE MAPPEN FOR FARGEOPPDATERINGEN
         const allIdsMap = hentAlleIds(nodeData);
         let allIdsFlat = [];
         for (const mid in allIdsMap) {
@@ -930,6 +939,8 @@ function tegnOppTre(treStruktur, container, erRot = true) {
         const idsString = allIdsFlat.join(',');
         
         headerDiv.setAttribute('data-folder-ids', idsString);
+        headerDiv.setAttribute('data-depth', currentDepth); // LAGRER DYBDEN PÅ MAPPEN
+
         let editHtml = erLavesteMappe ? `<div class="tree-edit-btn" title="Endre egenskaper for alle objekter i mappen">✏️</div>` : '';
 
         headerDiv.innerHTML = `<div class="tree-arrow">▶</div><div class="color-indicator"></div><div class="tree-title" title="${safeNøkkel}">${safeNøkkel}</div><div class="tree-count">${totaltAntall} obj</div>${editHtml}`;
@@ -968,7 +979,10 @@ function tegnOppTre(treStruktur, container, erRot = true) {
             if(editBtn) editBtn.onclick = (e) => { e.stopPropagation(); openModalForFolder(nøkkel, nodeData); };
         }
 
-        if (Object.keys(nodeData.barn).length > 0) { tegnOppTre(nodeData.barn, childrenDiv, false); }
+        // ØKER DEPTH MED +1 FOR HVERT NIVÅ
+        if (Object.keys(nodeData.barn).length > 0) { 
+            tegnOppTre(nodeData.barn, childrenDiv, false, currentDepth + 1); 
+        }
         
         if (nodeData.objekter.length > 0) {
             nodeData.objekter.sort((a, b) => naturligSortering(a.navn, b.navn)).forEach(obj => {
