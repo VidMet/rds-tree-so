@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.14</title>
+  <title>RDS Universal Editor v3.15</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -100,13 +100,12 @@
     .tree-edit-btn:hover { opacity: 1; background: var(--surface2); border-color: var(--border); }
     .tree-edit-btn.is-edited { opacity: 1; background: var(--red-dim); color: var(--red); border-color: var(--red); font-weight: bold; }
 
-    /* "FERDIG" STATUS (DUS GRØNN) */
+    /* "FERDIG" STATUS */
     .tree-object.is-done, .tree-header.is-done { background-color: var(--green-dim) !important; border-color: transparent; }
     .tree-object.is-done .tree-object-name, .tree-header.is-done .tree-title { color: var(--green); }
     .tree-object.is-done.active, .tree-header.is-done.active { background-color: #bbf7d0 !important; border: 1px dashed var(--green) !important; }
 
     /* DUSE NED SKJULTE/ISOLERTE OBJEKTER/MAPPER */
-    /* Veldig viktig: Dette filteret gjør grønnfargen grå hvis objektet er både "ferdig" og skjult */
     .is-hidden { opacity: 0.35 !important; filter: grayscale(100%) !important; }
     .is-hidden .tree-title, .is-hidden .tree-object-name { font-style: italic; color: var(--muted); }
 
@@ -142,8 +141,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v3.14</span></h1>
-    <p>Markering av "Ferdig" og forenklet bygg-knapp</p>
+    <h1>RDS Universal Editor <span class="version">v3.15</span></h1>
+    <p>Toveis-synkronisering med auto-scroll</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -205,11 +204,11 @@ let EXPORT_QUEUE = [];
 let currentEditTargets = []; 
 let lastClickedElement = null; 
 let GLOBAL_RDS_TREE = {}; 
-window.assignedColorsMap = new Map(); 
 
-// Setter for å holde styr på hva som er duset ned (skjult) og hva som er markert som "ferdig"
+window.assignedColorsMap = new Map(); 
 window.globalHiddenSet = new Set();
 window.globalDoneSet = new Set(); 
+let isSyncingTo3D = false; // Hindrer evige loops mellom tre og visning
 
 const LOPENUMMER_EGENSKAPER = [
     "01. rds-tag", 
@@ -255,12 +254,87 @@ async function connect(){
     $('toggleDoneBtn').disabled = false;
     $('modelBadge').textContent = 'Tilkoblet';
     setStatus('✅ Klar til å bygge tre fra markering.', 'ok');
+    
+    // NYTT I v3.15: Lytter på endringer i utvalget for 2-veis synk
+    if (API.viewer.onSelectionChanged) {
+        API.viewer.onSelectionChanged(async (payload) => {
+            if (!isSyncingTo3D) {
+                window.syncTreeFrom3DSelection();
+            }
+        });
+    }
   } catch(e) { 
     setStatus('❌ Kunne ikke koble til API.', 'error'); 
   }
 }
 
-// Logikk fra v3.11 for stabil synlighetssjekk
+// NYTT I v3.15: Markerer og åpner treet basert på klikk i 3D
+window.syncTreeFrom3DSelection = async function() {
+    if (!API || !API.viewer) return;
+    try {
+        const selection = await API.viewer.getSelection();
+        const selectedSet = new Set();
+        
+        if (selection && selection.length > 0) {
+            selection.forEach(sel => {
+                if (sel.objectRuntimeIds) {
+                    sel.objectRuntimeIds.forEach(rid => {
+                        selectedSet.add(`${sel.modelId}_${rid}`);
+                    });
+                }
+            });
+        }
+
+        let scrolled = false;
+
+        document.querySelectorAll('.tree-object').forEach(objDiv => {
+            const id = objDiv.getAttribute('data-id');
+            if (selectedSet.has(id)) {
+                objDiv.classList.add('active');
+                
+                // Åpne alle foreldremapper automatisk
+                let parent = objDiv.parentElement;
+                while (parent && parent.id !== 'mainContent') {
+                    if (parent.classList.contains('tree-children')) {
+                        parent.style.display = 'block';
+                        const header = parent.previousElementSibling;
+                        if (header && header.classList.contains('tree-header')) {
+                            const arrow = header.querySelector('.tree-arrow');
+                            if (arrow) arrow.innerText = '▼';
+                        }
+                    }
+                    parent = parent.parentElement;
+                }
+                
+                // Scroll til det første valgte objektet
+                if (!scrolled) {
+                    objDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    scrolled = true;
+                }
+            } else {
+                objDiv.classList.remove('active');
+            }
+        });
+
+        // Oppdater mapper hvis alle inni mappen er valgt
+        document.querySelectorAll('.tree-header').forEach(headerDiv => {
+            const idsStr = headerDiv.getAttribute('data-folder-ids');
+            if (!idsStr) return;
+            const ids = idsStr.split(',').filter(x => x);
+            if (ids.length > 0) {
+                const allSelected = ids.every(id => selectedSet.has(id));
+                if (allSelected) {
+                    headerDiv.classList.add('active');
+                } else {
+                    headerDiv.classList.remove('active');
+                }
+            }
+        });
+    } catch (e) {
+        console.warn("Feil ved tre-synkronisering", e);
+    }
+};
+
 window.syncVisibility = async function() {
     if (!API || !API.viewer || !API.viewer.getObjects) return -1;
     try {
@@ -338,7 +412,6 @@ $('syncVisBtn').addEventListener('click', () => {
     });
 });
 
-// LOGIKK FOR FERDIG-KNAPPEN
 window.applyDoneStateToTree = function() {
     document.querySelectorAll('.tree-object').forEach(objDiv => {
         const id = objDiv.getAttribute('data-id');
@@ -391,7 +464,6 @@ $('toggleDoneBtn').addEventListener('click', () => {
         }
     });
 
-    // Hvis alle markerte allerede er grønne -> fjern fargen (undo). Ellers -> fargelegg grønn.
     idsToToggle.forEach(id => {
         if (allActiveAreDone) {
             window.globalDoneSet.delete(id);
@@ -519,9 +591,14 @@ async function sync3DSelection() {
     
     try {
         if (API.viewer.setSelection) {
+            isSyncingTo3D = true;
             await API.viewer.setSelection({ modelObjectIds: modelObjectIds }, 'set');
+            setTimeout(() => { isSyncingTo3D = false; }, 200);
         }
-    } catch(err) { console.warn("Feil ved multisynkronisering", err); }
+    } catch(err) { 
+        console.warn("Feil ved multisynkronisering", err); 
+        isSyncingTo3D = false; 
+    }
 }
 
 async function kjorSkanner() {
@@ -658,9 +735,7 @@ async function kjorSkanner() {
         updateEditedIndicators();
         updateColorIndicatorsUI(); 
         
-        // Legger tilbake "ferdig" state hvis noe allerede var lagret fra forrige bygging
         window.applyDoneStateToTree();
-        
         await window.syncVisibility();
         
         setStatus(`✅ Bygget tre av ${totalObjects - manglerRDSCount} markeringer med RDS. ${manglerRDSCount} manglet RDS.`, 'ok');
