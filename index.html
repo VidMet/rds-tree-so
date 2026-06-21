@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.19</title>
+  <title>RDS Universal Editor v3.20</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -135,18 +135,24 @@
     ::-webkit-scrollbar-track { background: var(--bg); }
     ::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 3px; }
     ::-webkit-scrollbar-thumb:hover { background: var(--ink); }
+    
+    .divider { width: 1px; height: 24px; background: var(--border); margin: 0 4px; }
   </style>
 </head>
 <body>
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v3.19</span></h1>
-    <p>Stabil innlesing av alle markerte objekter</p>
+    <h1>RDS Universal Editor <span class="version">v3.20</span></h1>
+    <p>Lagring av "Ferdig" og "Fryst" tre-status</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
   <button class="btn btn-primary" id="scanSelBtn" disabled title="Bruk Ctrl+A (eller marker objekter) i 3D-modellen først!">▶ Bygg tre</button>
+  
+  <div class="divider"></div>
+  <button class="btn btn-outline" id="saveStateBtn" title="Lagre nåværende Ferdig/Fryst-status i nettleseren" disabled>💾 Lagre tre-status</button>
+  <button class="btn btn-outline" id="loadStateBtn" title="Hent forrige lagrede status for dette treet" disabled>📂 Hent tre-status</button>
 </header>
 
 <div id="editPanel">
@@ -266,7 +272,6 @@ function extractSafeIds(selectionArray) {
     return safeSet;
 }
 
-// SIGNATUR-BYGGER FOR Å FORHINDRE LØKKEKRASJ
 function getSelectionSignature(selArray) {
     return Array.from(extractSafeIds(selArray)).sort().join(',');
 }
@@ -278,10 +283,11 @@ async function connect(){
     $('queueBtn').disabled = false;
     $('syncVisBtn').disabled = false;
     $('toggleDoneBtn').disabled = false;
+    $('saveStateBtn').disabled = false;
+    $('loadStateBtn').disabled = false;
     $('modelBadge').textContent = 'Tilkoblet';
     setStatus('✅ Klar til å bygge tre fra markering.', 'ok');
     
-    // LIVE-SKANNER FOR SYNKRONISERING MOT TRE
     setInterval(async () => {
         if (!API || !API.viewer || window.isSyncingTo3D) return;
         try {
@@ -299,7 +305,39 @@ async function connect(){
   }
 }
 
-// HENTER MARKERING FRA LIVE-SKANNEREN OG OPPDATERER TREET
+// LAGRE OG HENTE STATUS-FUNKSJONER
+$('saveStateBtn').addEventListener('click', () => {
+    const stateObj = {
+        done: Array.from(window.globalDoneSet),
+        hidden: Array.from(window.globalHiddenSet)
+    };
+    try {
+        localStorage.setItem('rds_editor_tree_state', JSON.stringify(stateObj));
+        setStatus('✅ Tre-status (Ferdig/Fryst) ble lagret trygt i nettleseren.', 'ok');
+    } catch(e) {
+        setStatus('❌ Klarte ikke lagre status (sjekk sikkerhetsinnstillinger i nettleseren).', 'error');
+    }
+});
+
+$('loadStateBtn').addEventListener('click', () => {
+    try {
+        const stateStr = localStorage.getItem('rds_editor_tree_state');
+        if (stateStr) {
+            const stateObj = JSON.parse(stateStr);
+            window.globalDoneSet = new Set(stateObj.done || []);
+            window.globalHiddenSet = new Set(stateObj.hidden || []);
+            
+            window.applyDoneStateToTree();
+            window.applyVisibilityToTree(); // Egen funksjon for å gjeninnføre is-hidden
+            setStatus('✅ Hentet og brukte tidligere lagret tre-status.', 'ok');
+        } else {
+            setStatus('⚠️ Fant ingen tidligere lagret status.', 'warn');
+        }
+    } catch(e) {
+        setStatus('❌ Klarte ikke hente lagret status.', 'error');
+    }
+});
+
 window.syncTreeFrom3DSelection = async function(selection) {
     if (!API || !API.viewer) return;
     try {
@@ -355,6 +393,31 @@ window.syncTreeFrom3DSelection = async function(selection) {
     }
 };
 
+window.applyVisibilityToTree = function() {
+    document.querySelectorAll('.tree-object').forEach(objDiv => {
+        const id = objDiv.getAttribute('data-id');
+        if (window.globalHiddenSet.has(id)) {
+            objDiv.classList.add('is-hidden');
+        } else {
+            objDiv.classList.remove('is-hidden');
+        }
+    });
+
+    document.querySelectorAll('.tree-header').forEach(headerDiv => {
+        const idsStr = headerDiv.getAttribute('data-folder-ids');
+        if (!idsStr) return;
+        const ids = idsStr.split(',').filter(x => x);
+        if (ids.length > 0) {
+            const allHidden = ids.every(id => window.globalHiddenSet.has(id));
+            if (allHidden) {
+                headerDiv.classList.add('is-hidden');
+            } else {
+                headerDiv.classList.remove('is-hidden');
+            }
+        }
+    });
+};
+
 window.syncVisibility = async function() {
     if (!API || !API.viewer || !API.viewer.getObjects) return -1;
     try {
@@ -366,28 +429,12 @@ window.syncVisibility = async function() {
         document.querySelectorAll('.tree-object').forEach(objDiv => {
             const id = objDiv.getAttribute('data-id');
             if (!visibleSet.has(id)) {
-                objDiv.classList.add('is-hidden');
                 window.globalHiddenSet.add(id);
                 hiddenCount++;
-            } else {
-                objDiv.classList.remove('is-hidden');
-            }
-        });
-
-        document.querySelectorAll('.tree-header').forEach(headerDiv => {
-            const idsStr = headerDiv.getAttribute('data-folder-ids');
-            if (!idsStr) return;
-            const ids = idsStr.split(',').filter(x => x);
-            if (ids.length > 0) {
-                const allHidden = ids.every(id => !visibleSet.has(id));
-                if (allHidden) {
-                    headerDiv.classList.add('is-hidden');
-                } else {
-                    headerDiv.classList.remove('is-hidden');
-                }
             }
         });
         
+        window.applyVisibilityToTree();
         return hiddenCount;
     } catch (e) {
         console.warn("Kunne ikke synkronisere synlighet", e);
@@ -565,7 +612,6 @@ function updateColorIndicatorsUI() {
     });
 }
 
-// SENDER VALG FRA TREET TIL 3D-MODELLEN
 async function sync3DSelection() {
     const activeElements = document.querySelectorAll('.tree-header.active, .tree-object.active');
     let combinedMap = {}; 
@@ -620,7 +666,7 @@ async function kjorSkanner() {
             return;
         }
         
-        // Rullet tilbake til stabil innlesing!
+        // Stabil innlesing basert på v3.11!
         for (const sel of selection) {
             if (sel.objectRuntimeIds && sel.objectRuntimeIds.length > 0) {
                 targetMap[sel.modelId] = sel.objectRuntimeIds;
@@ -737,7 +783,7 @@ async function kjorSkanner() {
         updateColorIndicatorsUI(); 
         
         window.applyDoneStateToTree();
-        await window.syncVisibility();
+        window.applyVisibilityToTree(); // Bruker eksisterende fryst-status hvis noe var markert fra før
         
         setStatus(`✅ Bygget tre av ${totalObjects - manglerRDSCount} markeringer med RDS. ${manglerRDSCount} manglet RDS.`, 'ok');
         $('scanSelBtn').disabled = false;
@@ -1277,7 +1323,7 @@ function tegnOppTre(treStruktur, container, erRot = true, currentDepth = 0) {
                 headerDiv.classList.toggle('active');
                 lastClickedElement = headerDiv;
             } else if (e.shiftKey && lastClickedElement) {
-                window.getSelection().removeAllRanges(); // Forhindrer at nettleseren markerer tekst!
+                window.getSelection().removeAllRanges();
                 const start = allRows.indexOf(lastClickedElement);
                 const end = allRows.indexOf(headerDiv);
                 const min = Math.min(start, end); const max = Math.max(start, end);
@@ -1320,7 +1366,7 @@ function tegnOppTre(treStruktur, container, erRot = true, currentDepth = 0) {
                         objDiv.classList.toggle('active');
                         lastClickedElement = objDiv;
                     } else if (e.shiftKey && lastClickedElement) {
-                        window.getSelection().removeAllRanges(); // Forhindrer at nettleseren markerer tekst!
+                        window.getSelection().removeAllRanges(); 
                         const start = allRows.indexOf(lastClickedElement);
                         const end = allRows.indexOf(objDiv);
                         const min = Math.min(start, end); const max = Math.max(start, end);
