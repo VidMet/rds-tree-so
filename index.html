@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.9</title>
+  <title>RDS Universal Editor v3.10</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -136,8 +136,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v3.9</span></h1>
-    <p>Robust synkronisering av skjulte/isolerte objekter</p>
+    <h1>RDS Universal Editor <span class="version">v3.10</span></h1>
+    <p>Riktig og robust synkronisering av skjulte/isolerte objekter</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -256,23 +256,37 @@ async function connect(){
   }
 }
 
-// ROBUST SYNKRONISERING AV SKJULTE OBJEKTER
+// ROBUST SYNKRONISERING AV SKJULTE OBJEKTER - RIKTIG METODE!
 window.syncVisibility = async function() {
-    if (!API || !API.viewer || !API.viewer.getHiddenObjects) return -1;
+    if (!API || !API.viewer || !API.viewer.getObjects) return -1;
     try {
-        const hiddenData = await API.viewer.getHiddenObjects();
+        // Henter alle objekter som for øyeblikket har visible satt til false
+        const hiddenData = await API.viewer.getObjects(undefined, { visible: false });
         const hiddenSet = new Set();
         
         if (hiddenData && hiddenData.length > 0) {
-            hiddenData.forEach(item => {
-                // Fanger opp alle varianter av Trimble Connect IDs
-                const mid = item.modelId || item.modelid || item.id;
-                const rids = item.objectRuntimeIds || item.objectRuntimeids || item.objects || [];
+            hiddenData.forEach(model => {
+                const mid = model.modelId || model.modelid || model.id;
                 
-                rids.forEach(rid => {
-                    const cleanRid = (rid && rid.id) ? rid.id : (rid && rid.objectRuntimeId) ? rid.objectRuntimeId : rid;
-                    hiddenSet.add(`${mid}_${cleanRid}`);
-                });
+                // Utpakking av objektIDer
+                function extractIds(list) {
+                    if (!list) return;
+                    for (const o of list) {
+                        const rId = (o != null && typeof o === 'object') 
+                                        ? (o.id != null ? o.id : o.objectRuntimeId) 
+                                        : o;
+                        if (rId != null && typeof rId !== 'object') {
+                            hiddenSet.add(`${mid}_${rId}`);
+                        }
+                        if (o && typeof o === 'object') {
+                            if (o.children) extractIds(o.children);
+                            if (o.parts) extractIds(o.parts);
+                            if (o.instances) extractIds(o.instances);
+                        }
+                    }
+                }
+                
+                extractIds(model.objects || model.objectRuntimeIds || []);
             });
         }
 
