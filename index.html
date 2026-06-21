@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.21</title>
+  <title>RDS Universal Editor v3.22</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -143,8 +143,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v3.21</span></h1>
-    <p>Pålitelig lagring av tre-status</p>
+    <h1>RDS Universal Editor <span class="version">v3.22</span></h1>
+    <p>Gjenopprettet 3D-synk og påtvinging av synlighet</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -287,6 +287,20 @@ async function connect(){
     $('modelBadge').textContent = 'Tilkoblet';
     setStatus('✅ Klar til å bygge tre fra markering.', 'ok');
     
+    // 1. LIVE-SKANNER FOR SELEKSJON: Gjør at treet reagerer når du klikker i 3D
+    setInterval(async () => {
+        if (!API || !API.viewer || window.isSyncingTo3D) return;
+        try {
+            const sel = await API.viewer.getSelection();
+            const sig = getSelectionSignature(sel);
+            if (sig !== window.lastSelectionSignature) {
+                window.lastSelectionSignature = sig;
+                window.syncTreeFrom3DSelection(sel);
+            }
+        } catch(e) {}
+    }, 400);
+
+    // 2. LYTTER FOR SYNLIGHET: Fanger opp når du skjuler/viser noe manuelt via øye-ikonet i TC
     if (API.viewer.onObjectVisibilityChanged) {
         API.viewer.onObjectVisibilityChanged((payload) => {
             try {
@@ -312,6 +326,41 @@ async function connect(){
   }
 }
 
+// NY FUNKSJON: Tvinger skjulte objekter til å faktisk bli usynlige i 3D
+window.pushVisibilityTo3D = async function() {
+    if (!API || !API.viewer) return;
+    
+    const hiddenMap = {};
+    window.globalHiddenSet.forEach(key => {
+        const parts = key.split('_');
+        if (parts.length >= 2) {
+            const mid = parts[0];
+            const rid = parseInt(parts[1], 10);
+            if (!hiddenMap[mid]) hiddenMap[mid] = [];
+            hiddenMap[mid].push(rid);
+        }
+    });
+    
+    const hiddenModelObjectIds = Object.keys(hiddenMap).map(mid => ({
+        modelId: mid,
+        objectRuntimeIds: hiddenMap[mid]
+    }));
+    
+    if (hiddenModelObjectIds.length > 0) {
+        try {
+            // Prøver flere metoder da ulike API-versjoner bruker ulik syntaks
+            if (API.viewer.setObjectState) {
+                await API.viewer.setObjectState({ modelObjectIds: hiddenModelObjectIds }, { visible: false });
+            }
+            if (API.viewer.setVisibility) {
+                await API.viewer.setVisibility({ modelObjectIds: hiddenModelObjectIds }, false);
+            }
+        } catch(e) {
+            console.warn("Feil ved innsending av synlighet til 3D:", e);
+        }
+    }
+};
+
 // LAGRE OG HENTE STATUS-FUNKSJONER
 $('saveStateBtn').addEventListener('click', () => {
     const stateObj = {
@@ -322,7 +371,7 @@ $('saveStateBtn').addEventListener('click', () => {
         localStorage.setItem('rds_editor_tree_state', JSON.stringify(stateObj));
         setStatus('✅ Tre-status (Ferdig/Fryst) ble lagret trygt i nettleseren.', 'ok');
     } catch(e) {
-        setStatus('❌ Klarte ikke lagre status (sjekk sikkerhetsinnstillinger i nettleseren).', 'error');
+        setStatus('❌ Klarte ikke lagre status (sjekk sikkerhetsinnstillinger).', 'error');
     }
 });
 
@@ -336,7 +385,11 @@ $('loadStateBtn').addEventListener('click', () => {
             
             window.applyDoneStateToTree();
             window.applyVisibilityToTree(); 
-            setStatus('✅ Hentet og brukte tidligere lagret tre-status.', 'ok');
+            
+            // DYTTER SYNLIGHETEN UT TIL 3D-VINDUET!
+            window.pushVisibilityTo3D();
+            
+            setStatus('✅ Hentet lagret status og oppdaterte 3D-visningen.', 'ok');
         } else {
             setStatus('⚠️ Fant ingen tidligere lagret status.', 'warn');
         }
@@ -619,6 +672,7 @@ function updateColorIndicatorsUI() {
     });
 }
 
+// SENDER VALG FRA TREET TIL 3D-MODELLEN
 async function sync3DSelection() {
     const activeElements = document.querySelectorAll('.tree-header.active, .tree-object.active');
     let combinedMap = {}; 
@@ -673,14 +727,11 @@ async function kjorSkanner() {
             return;
         }
         
-        const selectedSafeSet = extractSafeIds(selection);
-        
-        for (const safeId of selectedSafeSet) {
-            const parts = safeId.split('_');
-            const mid = parts[0];
-            const rid = parseInt(parts[1], 10);
-            if (!targetMap[mid]) targetMap[mid] = [];
-            targetMap[mid].push(rid);
+        // Stabil innlesing
+        for (const sel of selection) {
+            if (sel.objectRuntimeIds && sel.objectRuntimeIds.length > 0) {
+                targetMap[sel.modelId] = sel.objectRuntimeIds;
+            }
         }
 
         const CHUNK = 200;
@@ -793,7 +844,6 @@ async function kjorSkanner() {
         updateColorIndicatorsUI(); 
         
         window.applyDoneStateToTree();
-        window.applyVisibilityToTree(); // <-- Løsningen ligger her! Nå beholder den lagret status i stedet for å overskrive.
         
         setStatus(`✅ Bygget tre av ${totalObjects - manglerRDSCount} markeringer med RDS. ${manglerRDSCount} manglet RDS.`, 'ok');
         $('scanSelBtn').disabled = false;
