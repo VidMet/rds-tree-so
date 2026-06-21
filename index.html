@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.17</title>
+  <title>RDS Universal Editor v3.18</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -89,12 +89,12 @@
     
     .tree-children { display: none; }
     
-    .tree-object { display: flex; align-items: center; justify-content: space-between; margin-left: 14px; padding: 6px 8px 6px 28px; font-size: 12px; color: var(--ink); cursor: pointer; transition: background 0.1s, opacity 0.3s, filter 0.3s; border-radius: 4px; position: relative; margin-top: 2px; }
+    .tree-object { display: flex; align-items: center; justify-content: space-between; margin-left: 14px; padding: 6px 8px 6px 28px; font-size: 12px; color: var(--ink); cursor: pointer; transition: background 0.1s, opacity 0.3s, filter 0.3s; border-radius: 4px; position: relative; margin-top: 2px; user-select: none; }
     .tree-object::before { content: ""; position: absolute; top: 0; left: -8px; bottom: auto; height: 16px; border-left: 1px solid var(--border); border-bottom: 1px solid var(--border); width: 12px; }
     .tree-object:hover { background: var(--blue-dim); color: var(--blue); }
     .tree-object.active { background: var(--blue-dim); color: var(--blue); font-weight: 600; }
     .tree-object::after { content: "🧊"; position: absolute; left: 10px; font-size: 10px; }
-    .tree-object-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.3s; }
+    .tree-object-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.3s; user-select: none; }
 
     .tree-edit-btn { margin-left: 8px; cursor: pointer; opacity: 0.4; font-size: 11px; padding: 3px 6px; border-radius: 4px; border: 1px solid transparent; white-space: nowrap; transition: all 0.15s; }
     .tree-edit-btn:hover { opacity: 1; background: var(--surface2); border-color: var(--border); }
@@ -141,8 +141,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v3.17</span></h1>
-    <p>Live-skanner for toveis-synk som alltid fungerer</p>
+    <h1>RDS Universal Editor <span class="version">v3.18</span></h1>
+    <p>Live-skanner med fungerende multiselect (Ctrl/Shift)</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -209,8 +209,9 @@ window.assignedColorsMap = new Map();
 window.globalHiddenSet = new Set();
 window.globalDoneSet = new Set(); 
 
-// Variabler for Live-skanneren
+// Variabler for Live-skanner og 3D-synk
 window.isSyncingTo3D = false; 
+window.syncTimeout = null;
 window.lastSelectionSignature = "";
 
 const LOPENUMMER_EGENSKAPER = [
@@ -265,6 +266,11 @@ function extractSafeIds(selectionArray) {
     return safeSet;
 }
 
+// SIGNATUR-BYGGER FOR Å FORHINDRE LØKKEKRASJ
+function getSelectionSignature(selArray) {
+    return Array.from(extractSafeIds(selArray)).sort().join(',');
+}
+
 async function connect(){
   try {
     API = await window.TrimbleConnectWorkspace.connect(window.parent);
@@ -275,19 +281,18 @@ async function connect(){
     $('modelBadge').textContent = 'Tilkoblet';
     setStatus('✅ Klar til å bygge tre fra markering.', 'ok');
     
-    // NYTT I v3.17: LIVE-SKANNER SOM OMGAAR API-BUGS
-    // Denne sjekker 3D-visningen hvert 400. millisekund.
+    // LIVE-SKANNER MED BREMS
     setInterval(async () => {
         if (!API || !API.viewer || window.isSyncingTo3D) return;
         try {
             const sel = await API.viewer.getSelection();
-            const sig = JSON.stringify(sel || []);
+            const sig = getSelectionSignature(sel);
             if (sig !== window.lastSelectionSignature) {
                 window.lastSelectionSignature = sig;
                 window.syncTreeFrom3DSelection(sel);
             }
         } catch(e) {}
-    }, 400);
+    }, 500);
 
   } catch(e) { 
     setStatus('❌ Kunne ikke koble til API.', 'error'); 
@@ -310,7 +315,6 @@ window.syncTreeFrom3DSelection = async function(selection) {
             if (isSelected) {
                 objDiv.classList.add('active');
                 
-                // Åpne alle mapper ned til objektet
                 let parent = objDiv.parentElement;
                 while (parent && parent.id !== 'mainContent') {
                     if (parent.classList.contains('tree-children')) {
@@ -324,7 +328,6 @@ window.syncTreeFrom3DSelection = async function(selection) {
                     parent = parent.parentElement;
                 }
                 
-                // Scroll pent til objektet
                 if (!scrolled) {
                     try { objDiv.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e){}
                     scrolled = true;
@@ -334,7 +337,6 @@ window.syncTreeFrom3DSelection = async function(selection) {
             }
         });
 
-        // Sjekk om hele mapper er valgt
         document.querySelectorAll('.tree-header').forEach(headerDiv => {
             const idsStr = headerDiv.getAttribute('data-folder-ids');
             if (!idsStr) return;
@@ -583,16 +585,19 @@ async function sync3DSelection() {
     }));
     
     try {
+        window.isSyncingTo3D = true;
+        if (window.syncTimeout) clearTimeout(window.syncTimeout);
+        
+        // Lagrer signaturen med en gang for å ignorere tilbakeslaget fra Connect
+        window.lastSelectionSignature = getSelectionSignature(modelObjectIds);
+        
         if (API.viewer.setSelection) {
-            window.isSyncingTo3D = true; // Sperrer skanneren midlertidig
             await API.viewer.setSelection({ modelObjectIds: modelObjectIds }, 'set');
-            // Oppdater signaturen slik at Live-skanneren ignorerer denne endringen
-            window.lastSelectionSignature = JSON.stringify(modelObjectIds);
         }
     } catch(err) { 
         console.warn("Feil ved multisynkronisering", err); 
     } finally {
-        setTimeout(() => { window.isSyncingTo3D = false; }, 300);
+        window.syncTimeout = setTimeout(() => { window.isSyncingTo3D = false; }, 1000);
     }
 }
 
@@ -1276,6 +1281,7 @@ function tegnOppTre(treStruktur, container, erRot = true, currentDepth = 0) {
                 headerDiv.classList.toggle('active');
                 lastClickedElement = headerDiv;
             } else if (e.shiftKey && lastClickedElement) {
+                window.getSelection().removeAllRanges(); // Forhindrer at nettleseren markerer tekst!
                 const start = allRows.indexOf(lastClickedElement);
                 const end = allRows.indexOf(headerDiv);
                 const min = Math.min(start, end); const max = Math.max(start, end);
@@ -1318,6 +1324,7 @@ function tegnOppTre(treStruktur, container, erRot = true, currentDepth = 0) {
                         objDiv.classList.toggle('active');
                         lastClickedElement = objDiv;
                     } else if (e.shiftKey && lastClickedElement) {
+                        window.getSelection().removeAllRanges(); // Forhindrer at nettleseren markerer tekst!
                         const start = allRows.indexOf(lastClickedElement);
                         const end = allRows.indexOf(objDiv);
                         const min = Math.min(start, end); const max = Math.max(start, end);
