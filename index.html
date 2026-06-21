@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.13</title>
+  <title>RDS Universal Editor v3.11</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -136,8 +136,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v3.13</span></h1>
-    <p>Aktiv synk-knapp for synlighet og isolasjon</p>
+    <h1>RDS Universal Editor <span class="version">v3.11</span></h1>
+    <p>Synkroniserer både "Skjul" og "Isoler"</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -154,7 +154,7 @@
   
   <div style="flex-grow: 1;"></div>
   
-  <button class="btn btn-outline" id="syncVisBtn" title="Oppdater treet basert på skjermbildet" disabled>👁️ Synk visning</button>
+  <button class="btn btn-outline" id="syncVisBtn" title="Oppdater treet basert på skjulte og ut-isolerte objekter" disabled>👁️ Synk visning</button>
   <button class="btn btn-danger" id="clearBtn" disabled>Tøm</button>
   <button class="btn btn-success" id="exportBtn" disabled>💾 Eksporter (0)</button>
 </div>
@@ -200,7 +200,6 @@ let currentEditTargets = [];
 let lastClickedElement = null; 
 let GLOBAL_RDS_TREE = {}; 
 window.assignedColorsMap = new Map(); 
-window.globalHiddenSet = new Set(); 
 
 const LOPENUMMER_EGENSKAPER = [
     "01. rds-tag", 
@@ -247,26 +246,9 @@ async function connect(){
     $('modelBadge').textContent = 'Tilkoblet';
     setStatus('✅ Klar til å skanne.', 'ok');
     
-    // Live-lytter i bakgrunnen
     if (API.viewer.onObjectVisibilityChanged) {
-        API.viewer.onObjectVisibilityChanged((payload) => {
-            try {
-                let changes = Array.isArray(payload) ? payload : [payload];
-                changes.forEach(change => {
-                    if (change.modelId && change.objectRuntimeIds) {
-                        const isHidden = (change.visible === false || change.state === 'hidden');
-                        
-                        change.objectRuntimeIds.forEach(rid => {
-                            const cleanRid = (typeof rid === 'object' && rid !== null) ? (rid.id || rid.objectRuntimeId) : rid;
-                            const key = `${change.modelId}_${cleanRid}`;
-                            
-                            if (isHidden) { window.globalHiddenSet.add(key); } 
-                            else { window.globalHiddenSet.delete(key); }
-                        });
-                    }
-                });
-                window.applyVisibilityToTree();
-            } catch(e) { console.error("Event error:", e); }
+        API.viewer.onObjectVisibilityChanged(() => {
+            window.syncVisibility();
         });
     }
   } catch(e) { 
@@ -274,61 +256,82 @@ async function connect(){
   }
 }
 
-// NY OG AKTIV SYNKRONISERINGSFUNKSJON SOM BRUKES AV KNAPPEN
+// ROBUST SYNKRONISERING AV BÅDE SKJULTE OG ISOLERTE OBJEKTER
 window.syncVisibility = async function() {
+    if (!API || !API.viewer || !API.viewer.getObjects) return -1;
     try {
-        // Henter eksplisitt skjulte objekter fra API-et
-        if (API && API.viewer && API.viewer.getHiddenObjects) {
-            const hiddenData = await API.viewer.getHiddenObjects();
-            if (hiddenData) {
-                hiddenData.forEach(item => {
-                    const mid = item.modelId || item.modelid || item.id;
-                    const rids = item.objectRuntimeIds || item.objectRuntimeids || item.objects || [];
-                    rids.forEach(rid => {
-                        const cleanRid = (typeof rid === 'object' && rid !== null) ? (rid.id || rid.objectRuntimeId) : rid;
-                        window.globalHiddenSet.add(`${mid}_${cleanRid}`);
-                    });
-                });
-            }
+        // Henter alle objekter som er SYNLIGE. Alt som ikke er her regnes som skjult/isolert.
+        const visibleData = await API.viewer.getObjects(undefined, { visible: true });
+        const visibleSet = new Set();
+        
+        if (visibleData && visibleData.length > 0) {
+            visibleData.forEach(model => {
+                const mid = model.modelId || model.modelid || model.id;
+                
+                function extractIds(list) {
+                    if (!list) return;
+                    for (const o of list) {
+                        const rId = (o != null && typeof o === 'object') 
+                                        ? (o.id != null ? o.id : o.objectRuntimeId) 
+                                        : o;
+                        if (rId != null && typeof rId !== 'object') {
+                            visibleSet.add(`${mid}_${rId}`);
+                        }
+                        if (o && typeof o === 'object') {
+                            if (o.children) extractIds(o.children);
+                            if (o.parts) extractIds(o.parts);
+                            if (o.instances) extractIds(o.instances);
+                        }
+                    }
+                }
+                
+                extractIds(model.objects || model.objectRuntimeIds || []);
+            });
         }
-    } catch (e) { console.warn("Kunne ikke hente skjulte objekter", e); }
-    
-    window.applyVisibilityToTree();
-    return window.globalHiddenSet.size;
-};
 
-window.applyVisibilityToTree = function() {
-    let hiddenCount = 0;
-    
-    document.querySelectorAll('.tree-object').forEach(objDiv => {
-        const id = objDiv.getAttribute('data-id');
-        if (window.globalHiddenSet.has(id)) {
-            objDiv.classList.add('is-hidden');
-            hiddenCount++;
-        } else {
-            objDiv.classList.remove('is-hidden');
-        }
-    });
+        let hiddenCount = 0;
 
-    document.querySelectorAll('.tree-header').forEach(headerDiv => {
-        const idsStr = headerDiv.getAttribute('data-folder-ids');
-        if (!idsStr) return;
-        const ids = idsStr.split(',').filter(x => x);
-        if (ids.length > 0) {
-            const allHidden = ids.every(id => window.globalHiddenSet.has(id));
-            if (allHidden) {
-                headerDiv.classList.add('is-hidden');
+        document.querySelectorAll('.tree-object').forEach(objDiv => {
+            const id = objDiv.getAttribute('data-id');
+            // Er den ikke i visibleSet, så er den skjult/isolert bort
+            if (!visibleSet.has(id)) {
+                objDiv.classList.add('is-hidden');
+                hiddenCount++;
             } else {
-                headerDiv.classList.remove('is-hidden');
+                objDiv.classList.remove('is-hidden');
             }
-        }
-    });
+        });
+
+        document.querySelectorAll('.tree-header').forEach(headerDiv => {
+            const idsStr = headerDiv.getAttribute('data-folder-ids');
+            if (!idsStr) return;
+            const ids = idsStr.split(',').filter(x => x);
+            if (ids.length > 0) {
+                // Mappen er skjult hvis INGEN av dens objekter finnes i visibleSet
+                const allHidden = ids.every(id => !visibleSet.has(id));
+                if (allHidden) {
+                    headerDiv.classList.add('is-hidden');
+                } else {
+                    headerDiv.classList.remove('is-hidden');
+                }
+            }
+        });
+        
+        return hiddenCount;
+    } catch (e) {
+        console.warn("Kunne ikke synkronisere synlighet", e);
+        return -1;
+    }
 };
 
 $('syncVisBtn').addEventListener('click', () => {
-    setStatus('⏳ Synkroniserer synlighet og isolasjon...', '');
+    setStatus('⏳ Synkroniserer synlighet...', '');
     window.syncVisibility().then((count) => {
-        setStatus(`✅ Treet er oppdatert. Dusert ned ${count} objekter.`, 'ok');
+        if(count >= 0) {
+            setStatus(`✅ Treet er oppdatert. Dusert ned ${count} skjulte/isolerte objekter.`, 'ok');
+        } else {
+            setStatus(`❌ Klarte ikke hente synlighet fra 3D-visningen.`, 'error');
+        }
     });
 });
 
@@ -615,7 +618,8 @@ async function kjorSkanner(mode) {
         tegnOppTre(GLOBAL_RDS_TREE, $('mainContent'));
         updateEditedIndicators();
         updateColorIndicatorsUI(); 
-        window.applyVisibilityToTree(); 
+        
+        await window.syncVisibility();
         
         setStatus(`✅ Skanning fullført. Fant ${totalObjects - manglerRDSCount} med RDS, ${manglerRDSCount} mangler RDS.`, 'ok');
         $('scanBtn').disabled = false;
