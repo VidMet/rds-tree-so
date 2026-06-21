@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.10</title>
+  <title>RDS Universal Editor v3.11</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -100,7 +100,7 @@
     .tree-edit-btn:hover { opacity: 1; background: var(--surface2); border-color: var(--border); }
     .tree-edit-btn.is-edited { opacity: 1; background: var(--red-dim); color: var(--red); border-color: var(--red); font-weight: bold; }
 
-    /* DUSE NED SKJULTE OBJEKTER/MAPPER */
+    /* DUSE NED SKJULTE/ISOLERTE OBJEKTER/MAPPER */
     .is-hidden { opacity: 0.35 !important; filter: grayscale(100%); }
     .is-hidden .tree-title, .is-hidden .tree-object-name { font-style: italic; color: var(--muted); }
 
@@ -136,8 +136,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v3.10</span></h1>
-    <p>Riktig og robust synkronisering av skjulte/isolerte objekter</p>
+    <h1>RDS Universal Editor <span class="version">v3.11</span></h1>
+    <p>Synkroniserer både "Skjul" og "Isoler"</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -154,7 +154,7 @@
   
   <div style="flex-grow: 1;"></div>
   
-  <button class="btn btn-outline" id="syncVisBtn" title="Oppdater treet med skjulte og frosne objekter fra 3D-visningen" disabled>👁️ Synk visning</button>
+  <button class="btn btn-outline" id="syncVisBtn" title="Oppdater treet basert på skjulte og ut-isolerte objekter" disabled>👁️ Synk visning</button>
   <button class="btn btn-danger" id="clearBtn" disabled>Tøm</button>
   <button class="btn btn-success" id="exportBtn" disabled>💾 Eksporter (0)</button>
 </div>
@@ -256,19 +256,18 @@ async function connect(){
   }
 }
 
-// ROBUST SYNKRONISERING AV SKJULTE OBJEKTER - RIKTIG METODE!
+// ROBUST SYNKRONISERING AV BÅDE SKJULTE OG ISOLERTE OBJEKTER
 window.syncVisibility = async function() {
     if (!API || !API.viewer || !API.viewer.getObjects) return -1;
     try {
-        // Henter alle objekter som for øyeblikket har visible satt til false
-        const hiddenData = await API.viewer.getObjects(undefined, { visible: false });
-        const hiddenSet = new Set();
+        // Henter alle objekter som er SYNLIGE. Alt som ikke er her regnes som skjult/isolert.
+        const visibleData = await API.viewer.getObjects(undefined, { visible: true });
+        const visibleSet = new Set();
         
-        if (hiddenData && hiddenData.length > 0) {
-            hiddenData.forEach(model => {
+        if (visibleData && visibleData.length > 0) {
+            visibleData.forEach(model => {
                 const mid = model.modelId || model.modelid || model.id;
                 
-                // Utpakking av objektIDer
                 function extractIds(list) {
                     if (!list) return;
                     for (const o of list) {
@@ -276,7 +275,7 @@ window.syncVisibility = async function() {
                                         ? (o.id != null ? o.id : o.objectRuntimeId) 
                                         : o;
                         if (rId != null && typeof rId !== 'object') {
-                            hiddenSet.add(`${mid}_${rId}`);
+                            visibleSet.add(`${mid}_${rId}`);
                         }
                         if (o && typeof o === 'object') {
                             if (o.children) extractIds(o.children);
@@ -290,12 +289,14 @@ window.syncVisibility = async function() {
             });
         }
 
-        const hiddenCount = hiddenSet.size;
+        let hiddenCount = 0;
 
         document.querySelectorAll('.tree-object').forEach(objDiv => {
             const id = objDiv.getAttribute('data-id');
-            if (hiddenSet.has(id)) {
+            // Er den ikke i visibleSet, så er den skjult/isolert bort
+            if (!visibleSet.has(id)) {
                 objDiv.classList.add('is-hidden');
+                hiddenCount++;
             } else {
                 objDiv.classList.remove('is-hidden');
             }
@@ -306,7 +307,8 @@ window.syncVisibility = async function() {
             if (!idsStr) return;
             const ids = idsStr.split(',').filter(x => x);
             if (ids.length > 0) {
-                const allHidden = ids.every(id => hiddenSet.has(id));
+                // Mappen er skjult hvis INGEN av dens objekter finnes i visibleSet
+                const allHidden = ids.every(id => !visibleSet.has(id));
                 if (allHidden) {
                     headerDiv.classList.add('is-hidden');
                 } else {
@@ -326,7 +328,7 @@ $('syncVisBtn').addEventListener('click', () => {
     setStatus('⏳ Synkroniserer synlighet...', '');
     window.syncVisibility().then((count) => {
         if(count >= 0) {
-            setStatus(`✅ Treet er oppdatert. Fant ${count} skjulte objekter.`, 'ok');
+            setStatus(`✅ Treet er oppdatert. Dusert ned ${count} skjulte/isolerte objekter.`, 'ok');
         } else {
             setStatus(`❌ Klarte ikke hente synlighet fra 3D-visningen.`, 'error');
         }
