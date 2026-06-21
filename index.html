@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.6</title>
+  <title>RDS Universal Editor v3.7</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -128,8 +128,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v3.6</span></h1>
-    <p>Legg til manglende egenskaper & Tøm 2_RDS raskt</p>
+    <h1>RDS Universal Editor <span class="version">v3.7</span></h1>
+    <p>Legg til manglende egenskaper & Avansert Tøm-funksjon</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -751,16 +751,19 @@ $('exportBtn').addEventListener('click', () => {
     } catch (error) { setStatus(`❌ Feil under eksport: ${error.message}`, 'error'); }
 });
 
-// NY FUNKSJON FOR Å TØMME ALLE EGENSKAPER I 2_RDS
+// NY FUNKSJON FOR Å TØMME 2_RDS OG SETTE 0_ELEMENT TIL NOTAPPLICABLE
 window.clearRdsProperties = function() {
     let rdsGroup = null;
+    let elementGroup = null;
+    
     const detailsElements = $('modalForm').querySelectorAll('details');
     detailsElements.forEach(det => {
-        if (det.querySelector('.pset-summary').innerText === '2_RDS') {
-            rdsGroup = det.querySelector('.pset-content');
-        }
+        const summary = det.querySelector('.pset-summary').innerText;
+        if (summary === '2_RDS') rdsGroup = det.querySelector('.pset-content');
+        if (summary === '0_Element') elementGroup = det.querySelector('.pset-content');
     });
     
+    // 1. Tøm 2_RDS
     if (rdsGroup) {
         const inputs = rdsGroup.querySelectorAll('input.input-field');
         inputs.forEach(inp => {
@@ -768,9 +771,41 @@ window.clearRdsProperties = function() {
             inp.style.backgroundColor = 'var(--red-dim)';
             setTimeout(() => inp.style.backgroundColor = '', 500);
         });
-    } else {
-        alert("Fant ingen 2_RDS gruppe å tømme for dette objektet/mappen.");
     }
+    
+    // 2. Opprett 0_Element hvis den mangler
+    if (!elementGroup) {
+        const newDetails = document.createElement('details');
+        newDetails.className = 'pset-group';
+        newDetails.open = true;
+        newDetails.innerHTML = `<summary class="pset-summary">0_Element</summary><div class="pset-content"></div>`;
+        $('modalForm').appendChild(newDetails);
+        elementGroup = newDetails.querySelector('.pset-content');
+    }
+    
+    // 3. Sett NotApplicable på Objekttype og Objektklasse
+    ['Objekttype', 'Objektklasse'].forEach(propName => {
+        let existingInput = null;
+        elementGroup.querySelectorAll('input.input-field').forEach(inp => {
+            if (inp.getAttribute('data-prop').toLowerCase() === propName.toLowerCase()) {
+                existingInput = inp;
+            }
+        });
+        
+        if (existingInput) {
+            existingInput.value = 'NotApplicable';
+            existingInput.style.backgroundColor = 'var(--blue-dim)';
+            setTimeout(() => existingInput.style.backgroundColor = '', 500);
+        } else {
+            const div = document.createElement('div');
+            div.className = 'modal-form-group';
+            div.innerHTML = `
+               <label>${escapeHTML(propName)}</label>
+               <input type="text" class="input-field" data-prop="${escapeHTML(propName)}" data-original-value="__NEW__" value="NotApplicable" style="border-color:var(--blue);">
+            `;
+            elementGroup.appendChild(div);
+        }
+    });
 };
 
 window.addCustomPropToForm = function() {
