@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.15</title>
+  <title>RDS Universal Editor v3.16</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -141,8 +141,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v3.15</span></h1>
-    <p>Toveis-synkronisering med auto-scroll</p>
+    <h1>RDS Universal Editor <span class="version">v3.16</span></h1>
+    <p>Robust toveis-synk mellom 3D og tre</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -208,7 +208,7 @@ let GLOBAL_RDS_TREE = {};
 window.assignedColorsMap = new Map(); 
 window.globalHiddenSet = new Set();
 window.globalDoneSet = new Set(); 
-let isSyncingTo3D = false; // Hindrer evige loops mellom tre og visning
+let isSyncingTo3D = false; 
 
 const LOPENUMMER_EGENSKAPER = [
     "01. rds-tag", 
@@ -245,6 +245,23 @@ function naturligSortering(a, b) {
     return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
 }
 
+// ROBUST TOLK FOR TRIMBLE CONNECT IDs
+function extractSafeIds(selectionArray) {
+    const safeSet = new Set();
+    if (!selectionArray || !selectionArray.length) return safeSet;
+    
+    selectionArray.forEach(sel => {
+        const mid = String(sel.modelId || sel.modelid || sel.id || "unknown");
+        const rids = sel.objectRuntimeIds || sel.objectRuntimeids || sel.objects || [];
+        
+        rids.forEach(rid => {
+            const cleanRid = String((typeof rid === 'object' && rid !== null) ? (rid.id || rid.objectRuntimeId) : rid);
+            safeSet.add(`${mid}_${cleanRid}`);
+        });
+    });
+    return safeSet;
+}
+
 async function connect(){
   try {
     API = await window.TrimbleConnectWorkspace.connect(window.parent);
@@ -255,44 +272,43 @@ async function connect(){
     $('modelBadge').textContent = 'Tilkoblet';
     setStatus('✅ Klar til å bygge tre fra markering.', 'ok');
     
-    // NYTT I v3.15: Lytter på endringer i utvalget for 2-veis synk
+    // Aktiverer toveis-synk
     if (API.viewer.onSelectionChanged) {
-        API.viewer.onSelectionChanged(async (payload) => {
+        API.viewer.onSelectionChanged(async () => {
             if (!isSyncingTo3D) {
                 window.syncTreeFrom3DSelection();
             }
         });
+    } else if (API.viewer.addEventListener) {
+        // Fallback for andre API versjoner
+        API.viewer.addEventListener('selectionChanged', () => {
+             if (!isSyncingTo3D) window.syncTreeFrom3DSelection();
+        });
     }
+
   } catch(e) { 
     setStatus('❌ Kunne ikke koble til API.', 'error'); 
   }
 }
 
-// NYTT I v3.15: Markerer og åpner treet basert på klikk i 3D
+// HENTER MARKERING FRA 3D OG OPPDATERER TREET
 window.syncTreeFrom3DSelection = async function() {
-    if (!API || !API.viewer) return;
+    if (!API || !API.viewer || !API.viewer.getSelection) return;
     try {
         const selection = await API.viewer.getSelection();
-        const selectedSet = new Set();
-        
-        if (selection && selection.length > 0) {
-            selection.forEach(sel => {
-                if (sel.objectRuntimeIds) {
-                    sel.objectRuntimeIds.forEach(rid => {
-                        selectedSet.add(`${sel.modelId}_${rid}`);
-                    });
-                }
-            });
-        }
-
+        const selectedSet = extractSafeIds(selection);
         let scrolled = false;
 
         document.querySelectorAll('.tree-object').forEach(objDiv => {
-            const id = objDiv.getAttribute('data-id');
-            if (selectedSet.has(id)) {
+            const rawId = objDiv.getAttribute('data-id');
+            if (!rawId) return;
+            
+            const isSelected = selectedSet.has(rawId);
+
+            if (isSelected) {
                 objDiv.classList.add('active');
                 
-                // Åpne alle foreldremapper automatisk
+                // Åpne alle mapper ned til objektet
                 let parent = objDiv.parentElement;
                 while (parent && parent.id !== 'mainContent') {
                     if (parent.classList.contains('tree-children')) {
@@ -306,9 +322,9 @@ window.syncTreeFrom3DSelection = async function() {
                     parent = parent.parentElement;
                 }
                 
-                // Scroll til det første valgte objektet
+                // Scroll til første valgte objekt
                 if (!scrolled) {
-                    objDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    try { objDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch(e){}
                     scrolled = true;
                 }
             } else {
@@ -316,7 +332,7 @@ window.syncTreeFrom3DSelection = async function() {
             }
         });
 
-        // Oppdater mapper hvis alle inni mappen er valgt
+        // Sjekk om hele mapper er valgt
         document.querySelectorAll('.tree-header').forEach(headerDiv => {
             const idsStr = headerDiv.getAttribute('data-folder-ids');
             if (!idsStr) return;
@@ -331,7 +347,7 @@ window.syncTreeFrom3DSelection = async function() {
             }
         });
     } catch (e) {
-        console.warn("Feil ved tre-synkronisering", e);
+        console.warn("Feil ved tre-synkronisering fra 3D", e);
     }
 };
 
@@ -339,33 +355,7 @@ window.syncVisibility = async function() {
     if (!API || !API.viewer || !API.viewer.getObjects) return -1;
     try {
         const visibleData = await API.viewer.getObjects(undefined, { visible: true });
-        const visibleSet = new Set();
-        
-        if (visibleData && visibleData.length > 0) {
-            visibleData.forEach(model => {
-                const mid = model.modelId || model.modelid || model.id;
-                
-                function extractIds(list) {
-                    if (!list) return;
-                    for (const o of list) {
-                        const rId = (o != null && typeof o === 'object') 
-                                        ? (o.id != null ? o.id : o.objectRuntimeId) 
-                                        : o;
-                        if (rId != null && typeof rId !== 'object') {
-                            visibleSet.add(`${mid}_${rId}`);
-                        }
-                        if (o && typeof o === 'object') {
-                            if (o.children) extractIds(o.children);
-                            if (o.parts) extractIds(o.parts);
-                            if (o.instances) extractIds(o.instances);
-                        }
-                    }
-                }
-                
-                extractIds(model.objects || model.objectRuntimeIds || []);
-            });
-        }
-
+        const visibleSet = extractSafeIds(visibleData);
         let hiddenCount = 0;
         window.globalHiddenSet.clear();
 
@@ -571,6 +561,7 @@ function updateColorIndicatorsUI() {
     });
 }
 
+// SENDER VALG FRA TREET TIL 3D-MODELLEN
 async function sync3DSelection() {
     const activeElements = document.querySelectorAll('.tree-header.active, .tree-object.active');
     let combinedMap = {}; 
@@ -591,13 +582,13 @@ async function sync3DSelection() {
     
     try {
         if (API.viewer.setSelection) {
-            isSyncingTo3D = true;
+            isSyncingTo3D = true; // Forhindrer at lytteren vår skyter tilbake umiddelbart
             await API.viewer.setSelection({ modelObjectIds: modelObjectIds }, 'set');
-            setTimeout(() => { isSyncingTo3D = false; }, 200);
         }
     } catch(err) { 
         console.warn("Feil ved multisynkronisering", err); 
-        isSyncingTo3D = false; 
+    } finally {
+        setTimeout(() => { isSyncingTo3D = false; }, 300);
     }
 }
 
@@ -620,10 +611,16 @@ async function kjorSkanner() {
             $('scanSelBtn').disabled = false;
             return;
         }
-        for (const sel of selection) {
-            if (sel.objectRuntimeIds && sel.objectRuntimeIds.length > 0) {
-                targetMap[sel.modelId] = sel.objectRuntimeIds;
-            }
+        
+        // Bruker tolk-funksjonen for å sikre kompatibilitet
+        const selectedSafeSet = extractSafeIds(selection);
+        
+        for (const safeId of selectedSafeSet) {
+            const parts = safeId.split('_');
+            const mid = parts[0];
+            const rid = parseInt(parts[1], 10);
+            if (!targetMap[mid]) targetMap[mid] = [];
+            targetMap[mid].push(rid);
         }
 
         const CHUNK = 200;
