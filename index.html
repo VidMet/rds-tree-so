@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.11</title>
+  <title>RDS Universal Editor v3.14</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -100,8 +100,14 @@
     .tree-edit-btn:hover { opacity: 1; background: var(--surface2); border-color: var(--border); }
     .tree-edit-btn.is-edited { opacity: 1; background: var(--red-dim); color: var(--red); border-color: var(--red); font-weight: bold; }
 
+    /* "FERDIG" STATUS (DUS GRØNN) */
+    .tree-object.is-done, .tree-header.is-done { background-color: var(--green-dim) !important; border-color: transparent; }
+    .tree-object.is-done .tree-object-name, .tree-header.is-done .tree-title { color: var(--green); }
+    .tree-object.is-done.active, .tree-header.is-done.active { background-color: #bbf7d0 !important; border: 1px dashed var(--green) !important; }
+
     /* DUSE NED SKJULTE/ISOLERTE OBJEKTER/MAPPER */
-    .is-hidden { opacity: 0.35 !important; filter: grayscale(100%); }
+    /* Veldig viktig: Dette filteret gjør grønnfargen grå hvis objektet er både "ferdig" og skjult */
+    .is-hidden { opacity: 0.35 !important; filter: grayscale(100%) !important; }
     .is-hidden .tree-title, .is-hidden .tree-object-name { font-style: italic; color: var(--muted); }
 
     .color-indicator { display: none; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; border: 1px solid rgba(0,0,0,0.2); flex-shrink: 0; }
@@ -136,13 +142,12 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v3.11</span></h1>
-    <p>Synkroniserer både "Skjul" og "Isoler"</p>
+    <h1>RDS Universal Editor <span class="version">v3.14</span></h1>
+    <p>Markering av "Ferdig" og forenklet bygg-knapp</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
-  <button class="btn btn-primary" id="scanBtn" disabled>▶ Bygg alt</button>
-  <button class="btn btn-primary" id="scanSelBtn" disabled title="Bruk Ctrl+A i 3D-modellen først!">▶ Bygg fra markering</button>
+  <button class="btn btn-primary" id="scanSelBtn" disabled title="Bruk Ctrl+A (eller marker objekter) i 3D-modellen først!">▶ Bygg tre</button>
 </header>
 
 <div id="editPanel">
@@ -154,6 +159,7 @@
   
   <div style="flex-grow: 1;"></div>
   
+  <button class="btn btn-success" id="toggleDoneBtn" title="Marker valgte objekter som ferdig (dus grønn)" disabled>✅ Ferdig</button>
   <button class="btn btn-outline" id="syncVisBtn" title="Oppdater treet basert på skjulte og ut-isolerte objekter" disabled>👁️ Synk visning</button>
   <button class="btn btn-danger" id="clearBtn" disabled>Tøm</button>
   <button class="btn btn-success" id="exportBtn" disabled>💾 Eksporter (0)</button>
@@ -162,7 +168,7 @@
 <div id="statusBar">Kobler til Trimble Connect...</div>
 
 <main id="mainContent">
-  <div class="empty anim">Klikk på "Bygg alt" eller "Bygg fra markering".</div>
+  <div class="empty anim">Klikk på "Bygg tre" for å hente inn din markering.</div>
 </main>
 
 <div id="editModal" class="modal-overlay" style="display:none;">
@@ -200,6 +206,10 @@ let currentEditTargets = [];
 let lastClickedElement = null; 
 let GLOBAL_RDS_TREE = {}; 
 window.assignedColorsMap = new Map(); 
+
+// Setter for å holde styr på hva som er duset ned (skjult) og hva som er markert som "ferdig"
+window.globalHiddenSet = new Set();
+window.globalDoneSet = new Set(); 
 
 const LOPENUMMER_EGENSKAPER = [
     "01. rds-tag", 
@@ -239,28 +249,21 @@ function naturligSortering(a, b) {
 async function connect(){
   try {
     API = await window.TrimbleConnectWorkspace.connect(window.parent);
-    $('scanBtn').disabled = false;
     $('scanSelBtn').disabled = false;
     $('queueBtn').disabled = false;
     $('syncVisBtn').disabled = false;
+    $('toggleDoneBtn').disabled = false;
     $('modelBadge').textContent = 'Tilkoblet';
-    setStatus('✅ Klar til å skanne.', 'ok');
-    
-    if (API.viewer.onObjectVisibilityChanged) {
-        API.viewer.onObjectVisibilityChanged(() => {
-            window.syncVisibility();
-        });
-    }
+    setStatus('✅ Klar til å bygge tre fra markering.', 'ok');
   } catch(e) { 
     setStatus('❌ Kunne ikke koble til API.', 'error'); 
   }
 }
 
-// ROBUST SYNKRONISERING AV BÅDE SKJULTE OG ISOLERTE OBJEKTER
+// Logikk fra v3.11 for stabil synlighetssjekk
 window.syncVisibility = async function() {
     if (!API || !API.viewer || !API.viewer.getObjects) return -1;
     try {
-        // Henter alle objekter som er SYNLIGE. Alt som ikke er her regnes som skjult/isolert.
         const visibleData = await API.viewer.getObjects(undefined, { visible: true });
         const visibleSet = new Set();
         
@@ -290,12 +293,13 @@ window.syncVisibility = async function() {
         }
 
         let hiddenCount = 0;
+        window.globalHiddenSet.clear();
 
         document.querySelectorAll('.tree-object').forEach(objDiv => {
             const id = objDiv.getAttribute('data-id');
-            // Er den ikke i visibleSet, så er den skjult/isolert bort
             if (!visibleSet.has(id)) {
                 objDiv.classList.add('is-hidden');
+                window.globalHiddenSet.add(id);
                 hiddenCount++;
             } else {
                 objDiv.classList.remove('is-hidden');
@@ -307,7 +311,6 @@ window.syncVisibility = async function() {
             if (!idsStr) return;
             const ids = idsStr.split(',').filter(x => x);
             if (ids.length > 0) {
-                // Mappen er skjult hvis INGEN av dens objekter finnes i visibleSet
                 const allHidden = ids.every(id => !visibleSet.has(id));
                 if (allHidden) {
                     headerDiv.classList.add('is-hidden');
@@ -325,7 +328,7 @@ window.syncVisibility = async function() {
 };
 
 $('syncVisBtn').addEventListener('click', () => {
-    setStatus('⏳ Synkroniserer synlighet...', '');
+    setStatus('⏳ Synkroniserer synlighet og isolasjon...', '');
     window.syncVisibility().then((count) => {
         if(count >= 0) {
             setStatus(`✅ Treet er oppdatert. Dusert ned ${count} skjulte/isolerte objekter.`, 'ok');
@@ -334,6 +337,72 @@ $('syncVisBtn').addEventListener('click', () => {
         }
     });
 });
+
+// LOGIKK FOR FERDIG-KNAPPEN
+window.applyDoneStateToTree = function() {
+    document.querySelectorAll('.tree-object').forEach(objDiv => {
+        const id = objDiv.getAttribute('data-id');
+        if (window.globalDoneSet.has(id)) {
+            objDiv.classList.add('is-done');
+        } else {
+            objDiv.classList.remove('is-done');
+        }
+    });
+
+    document.querySelectorAll('.tree-header').forEach(headerDiv => {
+        const idsStr = headerDiv.getAttribute('data-folder-ids');
+        if (!idsStr) return;
+        const ids = idsStr.split(',').filter(x => x);
+        if (ids.length > 0) {
+            const allDone = ids.every(id => window.globalDoneSet.has(id));
+            if (allDone) {
+                headerDiv.classList.add('is-done');
+            } else {
+                headerDiv.classList.remove('is-done');
+            }
+        }
+    });
+};
+
+$('toggleDoneBtn').addEventListener('click', () => {
+    const activeElements = document.querySelectorAll('.tree-header.active, .tree-object.active');
+    if (activeElements.length === 0) {
+        alert("Marker en mappe eller et objekt i treet først for å sette det som ferdig.");
+        return;
+    }
+
+    let allActiveAreDone = true;
+    let idsToToggle = [];
+
+    activeElements.forEach(el => {
+        if (el.classList.contains('tree-object')) {
+            const id = el.getAttribute('data-id');
+            idsToToggle.push(id);
+            if (!window.globalDoneSet.has(id)) allActiveAreDone = false;
+        } else if (el.classList.contains('tree-header')) {
+            const idsStr = el.getAttribute('data-folder-ids');
+            if (idsStr) {
+                const ids = idsStr.split(',').filter(x => x);
+                ids.forEach(id => {
+                    idsToToggle.push(id);
+                    if (!window.globalDoneSet.has(id)) allActiveAreDone = false;
+                });
+            }
+        }
+    });
+
+    // Hvis alle markerte allerede er grønne -> fjern fargen (undo). Ellers -> fargelegg grønn.
+    idsToToggle.forEach(id => {
+        if (allActiveAreDone) {
+            window.globalDoneSet.delete(id);
+        } else {
+            window.globalDoneSet.add(id);
+        }
+    });
+
+    window.applyDoneStateToTree();
+});
+
 
 function slaaSammen(props, nøkkel1, nøkkel2) {
     const val1 = props[nøkkel1] || props[nøkkel1.toLowerCase()];
@@ -455,9 +524,8 @@ async function sync3DSelection() {
     } catch(err) { console.warn("Feil ved multisynkronisering", err); }
 }
 
-async function kjorSkanner(mode) {
+async function kjorSkanner() {
     if (!API) return;
-    $('scanBtn').disabled = true;
     $('scanSelBtn').disabled = true;
     $('colorBtn').disabled = true;
     $('mainContent').innerHTML = '';
@@ -467,46 +535,17 @@ async function kjorSkanner(mode) {
     try {
         let targetMap = {}; 
 
-        if (mode === 'all') {
-            setStatus('⏳ Henter modellstruktur...');
-            const models = await API.viewer.getObjects();
-            if (!models || models.length === 0) {
-                setStatus('⚠️ Fant ingen objekter i vieweren.', 'warn');
-                $('scanBtn').disabled = false; $('scanSelBtn').disabled = false;
-                return;
-            }
-            
-            for (const model of models) {
-                const mid = model.modelId || model.modelid;
-                let ids = [];
-                const seen = new Set();
-                
-                function pakkUt(list) {
-                    if (!list) return;
-                    for (const o of list) {
-                        const rId = o.id || o.objectRuntimeId;
-                        if (rId != null && !seen.has(rId)) { ids.push(rId); seen.add(rId); }
-                        if (o.children) pakkUt(o.children);
-                        if (o.parts) pakkUt(o.parts);
-                        if (o.instances) pakkUt(o.instances);
-                    }
-                }
-                pakkUt(model.objects);
-                if (ids.length > 0) targetMap[mid] = ids;
-            }
-        } else {
-            setStatus('⏳ Henter objekter fra din markering i 3D...');
-            const selection = await API.viewer.getSelection();
-            if (!selection || selection.length === 0) {
-                alert("Du må markere objektene i 3D-modellen først (Tips: Bruk Ctrl+A for å velge alt).");
-                setStatus('⚠️ Ingenting er markert.', 'warn');
-                $('scanBtn').disabled = false; $('scanSelBtn').disabled = false;
-                return;
-            }
-            for (const sel of selection) {
-                if (sel.objectRuntimeIds && sel.objectRuntimeIds.length > 0) {
-                    targetMap[sel.modelId] = sel.objectRuntimeIds;
-                }
+        setStatus('⏳ Henter objekter fra din markering i 3D...');
+        const selection = await API.viewer.getSelection();
+        if (!selection || selection.length === 0) {
+            alert("Du må markere objektene i 3D-modellen først (Tips: Bruk Ctrl+A for å velge alt).");
+            setStatus('⚠️ Ingenting er markert i 3D-modellen.', 'warn');
+            $('scanSelBtn').disabled = false;
+            return;
+        }
+        for (const sel of selection) {
+            if (sel.objectRuntimeIds && sel.objectRuntimeIds.length > 0) {
+                targetMap[sel.modelId] = sel.objectRuntimeIds;
             }
         }
 
@@ -619,22 +658,22 @@ async function kjorSkanner(mode) {
         updateEditedIndicators();
         updateColorIndicatorsUI(); 
         
+        // Legger tilbake "ferdig" state hvis noe allerede var lagret fra forrige bygging
+        window.applyDoneStateToTree();
+        
         await window.syncVisibility();
         
-        setStatus(`✅ Skanning fullført. Fant ${totalObjects - manglerRDSCount} med RDS, ${manglerRDSCount} mangler RDS.`, 'ok');
-        $('scanBtn').disabled = false;
+        setStatus(`✅ Bygget tre av ${totalObjects - manglerRDSCount} markeringer med RDS. ${manglerRDSCount} manglet RDS.`, 'ok');
         $('scanSelBtn').disabled = false;
         if(totalObjects > 0) $('colorBtn').disabled = false;
 
     } catch (error) {
-        setStatus(`❌ Feil under skanning: ${error.message}`, 'error');
-        $('scanBtn').disabled = false;
+        setStatus(`❌ Feil under trebygging: ${error.message}`, 'error');
         $('scanSelBtn').disabled = false;
     }
 }
 
-$('scanBtn').addEventListener('click', () => kjorSkanner('all'));
-$('scanSelBtn').addEventListener('click', () => kjorSkanner('selection'));
+$('scanSelBtn').addEventListener('click', () => kjorSkanner());
 
 $('colorBtn').addEventListener('click', async () => {
     if (!API) return;
