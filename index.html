@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.20</title>
+  <title>RDS Universal Editor v3.21</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -143,8 +143,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v3.20</span></h1>
-    <p>Lagring av "Ferdig" og "Fryst" tre-status</p>
+    <h1>RDS Universal Editor <span class="version">v3.21</span></h1>
+    <p>Pålitelig lagring av tre-status</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -165,7 +165,7 @@
   <div style="flex-grow: 1;"></div>
   
   <button class="btn btn-success" id="toggleDoneBtn" title="Marker valgte objekter som ferdig (dus grønn)" disabled>✅ Ferdig</button>
-  <button class="btn btn-outline" id="syncVisBtn" title="Oppdater treet basert på skjulte og ut-isolerte objekter" disabled>👁️ Synk visning</button>
+  <button class="btn btn-outline" id="syncVisBtn" title="Oppdater treet basert på skjulte og ut-isolerte objekter i 3D-visningen" disabled>👁️ Synk visning</button>
   <button class="btn btn-danger" id="clearBtn" disabled>Tøm</button>
   <button class="btn btn-success" id="exportBtn" disabled>💾 Eksporter (0)</button>
 </div>
@@ -255,7 +255,6 @@ function naturligSortering(a, b) {
     return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
 }
 
-// ROBUST TOLK FOR TRIMBLE CONNECT IDs
 function extractSafeIds(selectionArray) {
     const safeSet = new Set();
     if (!selectionArray || !selectionArray.length) return safeSet;
@@ -288,18 +287,26 @@ async function connect(){
     $('modelBadge').textContent = 'Tilkoblet';
     setStatus('✅ Klar til å bygge tre fra markering.', 'ok');
     
-    setInterval(async () => {
-        if (!API || !API.viewer || window.isSyncingTo3D) return;
-        try {
-            const sel = await API.viewer.getSelection();
-            const sig = getSelectionSignature(sel);
-            if (sig !== window.lastSelectionSignature) {
-                window.lastSelectionSignature = sig;
-                window.syncTreeFrom3DSelection(sel);
-            }
-        } catch(e) {}
-    }, 500);
-
+    if (API.viewer.onObjectVisibilityChanged) {
+        API.viewer.onObjectVisibilityChanged((payload) => {
+            try {
+                let changes = Array.isArray(payload) ? payload : [payload];
+                changes.forEach(change => {
+                    if (change.modelId && change.objectRuntimeIds) {
+                        const isHidden = (change.visible === false || change.state === 'hidden');
+                        change.objectRuntimeIds.forEach(rid => {
+                            const cleanRid = (typeof rid === 'object' && rid !== null) ? (rid.id || rid.objectRuntimeId) : rid;
+                            const key = `${change.modelId}_${cleanRid}`;
+                            if (isHidden) { window.globalHiddenSet.add(key); } 
+                            else { window.globalHiddenSet.delete(key); }
+                        });
+                    }
+                });
+                window.applyVisibilityToTree();
+            } catch(e) { console.error("Event error:", e); }
+        });
+    }
+    
   } catch(e) { 
     setStatus('❌ Kunne ikke koble til API.', 'error'); 
   }
@@ -328,7 +335,7 @@ $('loadStateBtn').addEventListener('click', () => {
             window.globalHiddenSet = new Set(stateObj.hidden || []);
             
             window.applyDoneStateToTree();
-            window.applyVisibilityToTree(); // Egen funksjon for å gjeninnføre is-hidden
+            window.applyVisibilityToTree(); 
             setStatus('✅ Hentet og brukte tidligere lagret tre-status.', 'ok');
         } else {
             setStatus('⚠️ Fant ingen tidligere lagret status.', 'warn');
@@ -666,11 +673,14 @@ async function kjorSkanner() {
             return;
         }
         
-        // Stabil innlesing basert på v3.11!
-        for (const sel of selection) {
-            if (sel.objectRuntimeIds && sel.objectRuntimeIds.length > 0) {
-                targetMap[sel.modelId] = sel.objectRuntimeIds;
-            }
+        const selectedSafeSet = extractSafeIds(selection);
+        
+        for (const safeId of selectedSafeSet) {
+            const parts = safeId.split('_');
+            const mid = parts[0];
+            const rid = parseInt(parts[1], 10);
+            if (!targetMap[mid]) targetMap[mid] = [];
+            targetMap[mid].push(rid);
         }
 
         const CHUNK = 200;
@@ -783,7 +793,7 @@ async function kjorSkanner() {
         updateColorIndicatorsUI(); 
         
         window.applyDoneStateToTree();
-        window.applyVisibilityToTree(); // Bruker eksisterende fryst-status hvis noe var markert fra før
+        window.applyVisibilityToTree(); // <-- Løsningen ligger her! Nå beholder den lagret status i stedet for å overskrive.
         
         setStatus(`✅ Bygget tre av ${totalObjects - manglerRDSCount} markeringer med RDS. ${manglerRDSCount} manglet RDS.`, 'ok');
         $('scanSelBtn').disabled = false;
@@ -1323,7 +1333,7 @@ function tegnOppTre(treStruktur, container, erRot = true, currentDepth = 0) {
                 headerDiv.classList.toggle('active');
                 lastClickedElement = headerDiv;
             } else if (e.shiftKey && lastClickedElement) {
-                window.getSelection().removeAllRanges();
+                window.getSelection().removeAllRanges(); 
                 const start = allRows.indexOf(lastClickedElement);
                 const end = allRows.indexOf(headerDiv);
                 const min = Math.min(start, end); const max = Math.max(start, end);
