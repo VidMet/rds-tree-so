@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.12</title>
+  <title>RDS Universal Editor v3.13</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -136,8 +136,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v3.12</span></h1>
-    <p>Live-lytter for isolerte & skjulte lag</p>
+    <h1>RDS Universal Editor <span class="version">v3.13</span></h1>
+    <p>Aktiv synk-knapp for synlighet og isolasjon</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -154,7 +154,7 @@
   
   <div style="flex-grow: 1;"></div>
   
-  <button class="btn btn-outline" id="syncVisBtn" title="Tvungen oppdatering ved problemer med synlighet" disabled>👁️ Synk visning</button>
+  <button class="btn btn-outline" id="syncVisBtn" title="Oppdater treet basert på skjermbildet" disabled>👁️ Synk visning</button>
   <button class="btn btn-danger" id="clearBtn" disabled>Tøm</button>
   <button class="btn btn-success" id="exportBtn" disabled>💾 Eksporter (0)</button>
 </div>
@@ -200,8 +200,6 @@ let currentEditTargets = [];
 let lastClickedElement = null; 
 let GLOBAL_RDS_TREE = {}; 
 window.assignedColorsMap = new Map(); 
-
-// Global tracker for objekter som utvidelsen fanger opp er gjort usynlige
 window.globalHiddenSet = new Set(); 
 
 const LOPENUMMER_EGENSKAPER = [
@@ -249,25 +247,21 @@ async function connect(){
     $('modelBadge').textContent = 'Tilkoblet';
     setStatus('✅ Klar til å skanne.', 'ok');
     
-    // LYTTER PÅ ALT SOM SKJER LIVE I 3D-VISNINGEN
+    // Live-lytter i bakgrunnen
     if (API.viewer.onObjectVisibilityChanged) {
         API.viewer.onObjectVisibilityChanged((payload) => {
             try {
                 let changes = Array.isArray(payload) ? payload : [payload];
                 changes.forEach(change => {
                     if (change.modelId && change.objectRuntimeIds) {
-                        // Sjekker om signalet sier "skjult/isolert bort"
                         const isHidden = (change.visible === false || change.state === 'hidden');
                         
                         change.objectRuntimeIds.forEach(rid => {
                             const cleanRid = (typeof rid === 'object' && rid !== null) ? (rid.id || rid.objectRuntimeId) : rid;
                             const key = `${change.modelId}_${cleanRid}`;
                             
-                            if (isHidden) {
-                                window.globalHiddenSet.add(key);
-                            } else {
-                                window.globalHiddenSet.delete(key);
-                            }
+                            if (isHidden) { window.globalHiddenSet.add(key); } 
+                            else { window.globalHiddenSet.delete(key); }
                         });
                     }
                 });
@@ -280,7 +274,29 @@ async function connect(){
   }
 }
 
-// BRUKER DEN LOKALE LISTEN FOR Å OPPDATERE UI
+// NY OG AKTIV SYNKRONISERINGSFUNKSJON SOM BRUKES AV KNAPPEN
+window.syncVisibility = async function() {
+    try {
+        // Henter eksplisitt skjulte objekter fra API-et
+        if (API && API.viewer && API.viewer.getHiddenObjects) {
+            const hiddenData = await API.viewer.getHiddenObjects();
+            if (hiddenData) {
+                hiddenData.forEach(item => {
+                    const mid = item.modelId || item.modelid || item.id;
+                    const rids = item.objectRuntimeIds || item.objectRuntimeids || item.objects || [];
+                    rids.forEach(rid => {
+                        const cleanRid = (typeof rid === 'object' && rid !== null) ? (rid.id || rid.objectRuntimeId) : rid;
+                        window.globalHiddenSet.add(`${mid}_${cleanRid}`);
+                    });
+                });
+            }
+        }
+    } catch (e) { console.warn("Kunne ikke hente skjulte objekter", e); }
+    
+    window.applyVisibilityToTree();
+    return window.globalHiddenSet.size;
+};
+
 window.applyVisibilityToTree = function() {
     let hiddenCount = 0;
     
@@ -310,8 +326,10 @@ window.applyVisibilityToTree = function() {
 };
 
 $('syncVisBtn').addEventListener('click', () => {
-    alert("Tips: Isolasjon i Trimble Connect sendes kun ut som 'live-signaler'. Sørg for å ha utvidelsen åpen mens du skrur 'Isoler' av og på i 3D-modellen for at den skal fange det opp!");
-    setStatus('⚠️ Skru isolasjon av/på for å oppdatere utvidelsen.', 'warn');
+    setStatus('⏳ Synkroniserer synlighet og isolasjon...', '');
+    window.syncVisibility().then((count) => {
+        setStatus(`✅ Treet er oppdatert. Dusert ned ${count} objekter.`, 'ok');
+    });
 });
 
 function slaaSammen(props, nøkkel1, nøkkel2) {
@@ -597,8 +615,7 @@ async function kjorSkanner(mode) {
         tegnOppTre(GLOBAL_RDS_TREE, $('mainContent'));
         updateEditedIndicators();
         updateColorIndicatorsUI(); 
-        
-        window.applyVisibilityToTree(); // Sørger for at treet husker hva som ble isolert FØR skann
+        window.applyVisibilityToTree(); 
         
         setStatus(`✅ Skanning fullført. Fant ${totalObjects - manglerRDSCount} med RDS, ${manglerRDSCount} mangler RDS.`, 'ok');
         $('scanBtn').disabled = false;
