@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.18</title>
+  <title>RDS Universal Editor v3.19</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -141,8 +141,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v3.18</span></h1>
-    <p>Live-skanner med fungerende multiselect (Ctrl/Shift)</p>
+    <h1>RDS Universal Editor <span class="version">v3.19</span></h1>
+    <p>Stabil innlesing av alle markerte objekter</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -281,7 +281,7 @@ async function connect(){
     $('modelBadge').textContent = 'Tilkoblet';
     setStatus('✅ Klar til å bygge tre fra markering.', 'ok');
     
-    // LIVE-SKANNER MED BREMS
+    // LIVE-SKANNER FOR SYNKRONISERING MOT TRE
     setInterval(async () => {
         if (!API || !API.viewer || window.isSyncingTo3D) return;
         try {
@@ -588,7 +588,6 @@ async function sync3DSelection() {
         window.isSyncingTo3D = true;
         if (window.syncTimeout) clearTimeout(window.syncTimeout);
         
-        // Lagrer signaturen med en gang for å ignorere tilbakeslaget fra Connect
         window.lastSelectionSignature = getSelectionSignature(modelObjectIds);
         
         if (API.viewer.setSelection) {
@@ -621,14 +620,11 @@ async function kjorSkanner() {
             return;
         }
         
-        const selectedSafeSet = extractSafeIds(selection);
-        
-        for (const safeId of selectedSafeSet) {
-            const parts = safeId.split('_');
-            const mid = parts[0];
-            const rid = parseInt(parts[1], 10);
-            if (!targetMap[mid]) targetMap[mid] = [];
-            targetMap[mid].push(rid);
+        // Rullet tilbake til stabil innlesing!
+        for (const sel of selection) {
+            if (sel.objectRuntimeIds && sel.objectRuntimeIds.length > 0) {
+                targetMap[sel.modelId] = sel.objectRuntimeIds;
+            }
         }
 
         const CHUNK = 200;
