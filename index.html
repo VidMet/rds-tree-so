@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.8</title>
+  <title>RDS Universal Editor v3.9</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -79,7 +79,7 @@
     .tree-node::before { content: ""; position: absolute; top: 0; left: -8px; bottom: 0; border-left: 1px solid var(--border); }
     .tree-node:last-child::before { bottom: auto; height: 16px; }
     
-    .tree-header { display: flex; align-items: center; padding: 6px 8px; cursor: pointer; border-radius: 6px; transition: background 0.1s, opacity 0.3s; margin-top: 2px; user-select: none; }
+    .tree-header { display: flex; align-items: center; padding: 6px 8px; cursor: pointer; border-radius: 6px; transition: background 0.1s, opacity 0.3s, filter 0.3s; margin-top: 2px; user-select: none; }
     .tree-header:hover { background: var(--bg); }
     .tree-header.active { background: var(--surface2); border: 1px dashed var(--muted); }
     
@@ -89,7 +89,7 @@
     
     .tree-children { display: none; }
     
-    .tree-object { display: flex; align-items: center; justify-content: space-between; margin-left: 14px; padding: 6px 8px 6px 28px; font-size: 12px; color: var(--ink); cursor: pointer; transition: background 0.1s, opacity 0.3s; border-radius: 4px; position: relative; margin-top: 2px; }
+    .tree-object { display: flex; align-items: center; justify-content: space-between; margin-left: 14px; padding: 6px 8px 6px 28px; font-size: 12px; color: var(--ink); cursor: pointer; transition: background 0.1s, opacity 0.3s, filter 0.3s; border-radius: 4px; position: relative; margin-top: 2px; }
     .tree-object::before { content: ""; position: absolute; top: 0; left: -8px; bottom: auto; height: 16px; border-left: 1px solid var(--border); border-bottom: 1px solid var(--border); width: 12px; }
     .tree-object:hover { background: var(--blue-dim); color: var(--blue); }
     .tree-object.active { background: var(--blue-dim); color: var(--blue); font-weight: 600; }
@@ -100,7 +100,7 @@
     .tree-edit-btn:hover { opacity: 1; background: var(--surface2); border-color: var(--border); }
     .tree-edit-btn.is-edited { opacity: 1; background: var(--red-dim); color: var(--red); border-color: var(--red); font-weight: bold; }
 
-    /* NYTT: DUSE NED SKJULTE OBJEKTER/MAPPER */
+    /* DUSE NED SKJULTE OBJEKTER/MAPPER */
     .is-hidden { opacity: 0.35 !important; filter: grayscale(100%); }
     .is-hidden .tree-title, .is-hidden .tree-object-name { font-style: italic; color: var(--muted); }
 
@@ -136,8 +136,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v3.8</span></h1>
-    <p>Synkronisering av skjulte/isolere objekter</p>
+    <h1>RDS Universal Editor <span class="version">v3.9</span></h1>
+    <p>Robust synkronisering av skjulte/isolerte objekter</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -256,22 +256,27 @@ async function connect(){
   }
 }
 
-// NY FUNKSJON: Henter skjulte objekter og duser dem ned i treet
+// ROBUST SYNKRONISERING AV SKJULTE OBJEKTER
 window.syncVisibility = async function() {
-    if (!API || !API.viewer || !API.viewer.getHiddenObjects) return;
+    if (!API || !API.viewer || !API.viewer.getHiddenObjects) return -1;
     try {
         const hiddenData = await API.viewer.getHiddenObjects();
         const hiddenSet = new Set();
         
-        if (hiddenData) {
+        if (hiddenData && hiddenData.length > 0) {
             hiddenData.forEach(item => {
-                if (item.objectRuntimeIds) {
-                    item.objectRuntimeIds.forEach(rid => {
-                        hiddenSet.add(`${item.modelId}_${rid}`);
-                    });
-                }
+                // Fanger opp alle varianter av Trimble Connect IDs
+                const mid = item.modelId || item.modelid || item.id;
+                const rids = item.objectRuntimeIds || item.objectRuntimeids || item.objects || [];
+                
+                rids.forEach(rid => {
+                    const cleanRid = (rid && rid.id) ? rid.id : (rid && rid.objectRuntimeId) ? rid.objectRuntimeId : rid;
+                    hiddenSet.add(`${mid}_${cleanRid}`);
+                });
             });
         }
+
+        const hiddenCount = hiddenSet.size;
 
         document.querySelectorAll('.tree-object').forEach(objDiv => {
             const id = objDiv.getAttribute('data-id');
@@ -296,15 +301,21 @@ window.syncVisibility = async function() {
             }
         });
         
+        return hiddenCount;
     } catch (e) {
         console.warn("Kunne ikke synkronisere synlighet", e);
+        return -1;
     }
 };
 
 $('syncVisBtn').addEventListener('click', () => {
-    setStatus('⏳ Synkroniserer synlighet med 3D-modell...', '');
-    window.syncVisibility().then(() => {
-        setStatus('✅ Treet er oppdatert med skjulte objekter.', 'ok');
+    setStatus('⏳ Synkroniserer synlighet...', '');
+    window.syncVisibility().then((count) => {
+        if(count >= 0) {
+            setStatus(`✅ Treet er oppdatert. Fant ${count} skjulte objekter.`, 'ok');
+        } else {
+            setStatus(`❌ Klarte ikke hente synlighet fra 3D-visningen.`, 'error');
+        }
     });
 });
 
