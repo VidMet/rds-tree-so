@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.16</title>
+  <title>RDS Universal Editor v3.17</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -141,8 +141,8 @@
 
 <header>
   <div class="header-title">
-    <h1>RDS Universal Editor <span class="version">v3.16</span></h1>
-    <p>Robust toveis-synk mellom 3D og tre</p>
+    <h1>RDS Universal Editor <span class="version">v3.17</span></h1>
+    <p>Live-skanner for toveis-synk som alltid fungerer</p>
   </div>
   <span class="badge" id="modelBadge">Frakoblet</span>
   
@@ -208,7 +208,10 @@ let GLOBAL_RDS_TREE = {};
 window.assignedColorsMap = new Map(); 
 window.globalHiddenSet = new Set();
 window.globalDoneSet = new Set(); 
-let isSyncingTo3D = false; 
+
+// Variabler for Live-skanneren
+window.isSyncingTo3D = false; 
+window.lastSelectionSignature = "";
 
 const LOPENUMMER_EGENSKAPER = [
     "01. rds-tag", 
@@ -272,30 +275,29 @@ async function connect(){
     $('modelBadge').textContent = 'Tilkoblet';
     setStatus('✅ Klar til å bygge tre fra markering.', 'ok');
     
-    // Aktiverer toveis-synk
-    if (API.viewer.onSelectionChanged) {
-        API.viewer.onSelectionChanged(async () => {
-            if (!isSyncingTo3D) {
-                window.syncTreeFrom3DSelection();
+    // NYTT I v3.17: LIVE-SKANNER SOM OMGAAR API-BUGS
+    // Denne sjekker 3D-visningen hvert 400. millisekund.
+    setInterval(async () => {
+        if (!API || !API.viewer || window.isSyncingTo3D) return;
+        try {
+            const sel = await API.viewer.getSelection();
+            const sig = JSON.stringify(sel || []);
+            if (sig !== window.lastSelectionSignature) {
+                window.lastSelectionSignature = sig;
+                window.syncTreeFrom3DSelection(sel);
             }
-        });
-    } else if (API.viewer.addEventListener) {
-        // Fallback for andre API versjoner
-        API.viewer.addEventListener('selectionChanged', () => {
-             if (!isSyncingTo3D) window.syncTreeFrom3DSelection();
-        });
-    }
+        } catch(e) {}
+    }, 400);
 
   } catch(e) { 
     setStatus('❌ Kunne ikke koble til API.', 'error'); 
   }
 }
 
-// HENTER MARKERING FRA 3D OG OPPDATERER TREET
-window.syncTreeFrom3DSelection = async function() {
-    if (!API || !API.viewer || !API.viewer.getSelection) return;
+// HENTER MARKERING FRA LIVE-SKANNEREN OG OPPDATERER TREET
+window.syncTreeFrom3DSelection = async function(selection) {
+    if (!API || !API.viewer) return;
     try {
-        const selection = await API.viewer.getSelection();
         const selectedSet = extractSafeIds(selection);
         let scrolled = false;
 
@@ -322,9 +324,9 @@ window.syncTreeFrom3DSelection = async function() {
                     parent = parent.parentElement;
                 }
                 
-                // Scroll til første valgte objekt
+                // Scroll pent til objektet
                 if (!scrolled) {
-                    try { objDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch(e){}
+                    try { objDiv.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e){}
                     scrolled = true;
                 }
             } else {
@@ -582,13 +584,15 @@ async function sync3DSelection() {
     
     try {
         if (API.viewer.setSelection) {
-            isSyncingTo3D = true; // Forhindrer at lytteren vår skyter tilbake umiddelbart
+            window.isSyncingTo3D = true; // Sperrer skanneren midlertidig
             await API.viewer.setSelection({ modelObjectIds: modelObjectIds }, 'set');
+            // Oppdater signaturen slik at Live-skanneren ignorerer denne endringen
+            window.lastSelectionSignature = JSON.stringify(modelObjectIds);
         }
     } catch(err) { 
         console.warn("Feil ved multisynkronisering", err); 
     } finally {
-        setTimeout(() => { isSyncingTo3D = false; }, 300);
+        setTimeout(() => { window.isSyncingTo3D = false; }, 300);
     }
 }
 
@@ -612,7 +616,6 @@ async function kjorSkanner() {
             return;
         }
         
-        // Bruker tolk-funksjonen for å sikre kompatibilitet
         const selectedSafeSet = extractSafeIds(selection);
         
         for (const safeId of selectedSafeSet) {
