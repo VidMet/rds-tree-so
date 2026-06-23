@@ -37,7 +37,7 @@ Utvidelsen har flere verktøy for å holde oversikt over store modeller:
 
 ### 5. Eksportere endringer
 Når du er ferdig med å redigere, vil knappen **"💾 Eksporter"** vise hvor mange objekter som ligger i køen. 
-* Trykk på knappen for å laste ned filen `property_batch_update.json`. Denne filen inneholder alle instruksjonene som trengs for å oppdatere IFC-filene.
+* Trykk på knappen for å laste ned filen `update-properties.json`. Denne filen inneholder alle instruksjonene som trengs for å oppdatere IFC-filene.
 
 ---
 
@@ -47,8 +47,8 @@ For at endringene du gjorde i nettleseren skal bli permanente, må de skrives in
 
 ### Slik gjør du det:
 1. Sørg for at du har lastet ned IFC-filene du skal oppdatere til en mappe på PCen din (eller at de er synkronisert via f.eks. Trimble Connect Sync / OneDrive).
-2. Dobbeltklikk på programmet **`RDS_Oppdaterer.exe`**.
-3. Et fil-vindu spretter opp: Velg `property_batch_update.json`-filen du nettopp lastet ned fra Trimble Connect.
+2. Dobbeltklikk på programmet **`update-properties.exe`**.
+3. Et fil-vindu spretter opp: Velg `update-properties.json`-filen du nettopp lastet ned fra Trimble Connect.
 4. Et nytt vindu spretter opp: Velg mappen på PCen din som inneholder IFC-filene.
 5. Programmet (en svart terminal) vil nå starte å lese filene og skrive inn endringene. Du kan følge med på fremdriften live i terminalen.
 6. Når prosessen er ferdig, får du opp en suksessmelding som forteller hvor mange objekter som ble oppdatert.

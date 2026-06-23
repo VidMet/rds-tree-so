@@ -1092,7 +1092,7 @@ $('exportBtn').addEventListener('click', () => {
         const blob = new Blob([jsonString], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
-        a.href = url; a.download = `rds_batch_update_flere.json`;
+        a.href = url; a.download = `update-properties.json`;
         document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
         
         const antallEksportert = EXPORT_QUEUE.length;
