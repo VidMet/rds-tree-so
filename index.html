@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.23</title>
+  <title>RDS Universal Editor v3.24</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -40,7 +40,7 @@
       min-width: 380px; 
     }
 
-    /* --- NY HEADER STYLING --- */
+    /* --- HEADER STYLING --- */
     .topbar {
       height: 92px; background: #fff; border-bottom: 1px solid var(--border);
       display: flex; align-items: center; gap: 18px; padding: 10px 18px; flex: 0 0 auto;
@@ -56,7 +56,11 @@
     .app-title span { font-size: 14px; font-weight: 600; }
     .app-title em { font-size: 12px; color: #667085; font-style: normal; }
     
-    .status { margin-left: auto; display: flex; align-items: center; gap: 7px; color: #667085; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .header-right { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+    .help-link { font-size: 12px; color: var(--blue); text-decoration: none; font-weight: 700; transition: opacity 0.2s; display: flex; align-items: center; gap: 4px; }
+    .help-link:hover { opacity: 0.7; text-decoration: underline; }
+    
+    .status { display: flex; align-items: center; gap: 7px; color: #667085; font-size: 12px; font-weight: 600; white-space: nowrap; }
     .dot { width: 9px; height: 9px; border-radius: 50%; background: #98a2b3; flex-shrink: 0; }
     .dot.live { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
     .dot.warn { background: var(--warn); }
@@ -164,13 +168,16 @@
     <img src="norconsult-logo-black.png" alt="Norconsult">
   </div>
   <div class="app-title">
-    <b>RDS Universal Editor v3.23</b>
+    <b>RDS Universal Editor v3.24</b>
     <span>Norconsult Norge</span>
-    <em>Developed by Norconsult. Kontaktperson: Vidar.Metveit@norconsult.com | <a href="LINK_TIL_DIN_GITHUB_README" target="_blank" style="color: var(--blue); text-decoration: none; font-weight: bold;">📘 Brukerveiledning</a></em>
+    <em>Developed by Norconsult, AI-assisted development. Kontaktperson: Vidar.Metveit@norconsult.com</em>
   </div>
-  <div class="status">
-    <span id="statusText">Frakoblet</span>
-    <span id="statusDot" class="dot"></span>
+  <div class="header-right">
+    <a href="https://github.com/VidMet/rds-tree-so/blob/main/README.md" target="_blank" class="help-link">📘 Brukerveiledning</a>
+    <div class="status">
+      <span id="statusText">Frakoblet</span>
+      <span id="statusDot" class="dot"></span>
+    </div>
   </div>
 </header>
 
@@ -191,7 +198,7 @@
   <div style="flex-grow: 1;"></div>
   
   <button class="btn btn-success" id="toggleDoneBtn" title="Marker valgte objekter som ferdig (dus grønn)" disabled>✅ Ferdig</button>
-  <button class="btn btn-outline" id="syncVisBtn" title="Oppdater treet basert på skjulte og ut-isolerte objekter" disabled>👁️ Synk visning</button>
+  <button class="btn btn-outline" id="syncVisBtn" title="Oppdater treet basert på skjulte og ut-isolerte objekter i 3D-visningen" disabled>👁️ Synk visning</button>
   <button class="btn btn-danger" id="clearBtn" disabled>Tøm</button>
   <button class="btn btn-success" id="exportBtn" disabled>💾 Eksporter (0)</button>
 </div>
@@ -268,7 +275,6 @@ const UTEN_RDS_MAPPE_NAVN = "[Objekter uten RDS]";
 
 const $ = id => document.getElementById(id);
 
-// --- NY SETSTATUS-FUNKSJON FOR HEADEREN ---
 const setStatus = (m, c='') => { 
     $('statusText').textContent = m; 
     let dotClass = 'dot';
@@ -330,10 +336,63 @@ async function connect(){
         } catch(e) {}
     }, 500);
 
+    if (API.viewer.onObjectVisibilityChanged) {
+        API.viewer.onObjectVisibilityChanged((payload) => {
+            try {
+                let changes = Array.isArray(payload) ? payload : [payload];
+                changes.forEach(change => {
+                    if (change.modelId && change.objectRuntimeIds) {
+                        const isHidden = (change.visible === false || change.state === 'hidden');
+                        change.objectRuntimeIds.forEach(rid => {
+                            const cleanRid = (typeof rid === 'object' && rid !== null) ? (rid.id || rid.objectRuntimeId) : rid;
+                            const key = `${change.modelId}_${cleanRid}`;
+                            if (isHidden) { window.globalHiddenSet.add(key); } 
+                            else { window.globalHiddenSet.delete(key); }
+                        });
+                    }
+                });
+                window.applyVisibilityToTree();
+            } catch(e) { console.error("Event error:", e); }
+        });
+    }
+    
   } catch(e) { 
     setStatus('❌ Kunne ikke koble til API.', 'error'); 
   }
 }
+
+window.pushVisibilityTo3D = async function() {
+    if (!API || !API.viewer) return;
+    
+    const hiddenMap = {};
+    window.globalHiddenSet.forEach(key => {
+        const parts = key.split('_');
+        if (parts.length >= 2) {
+            const mid = parts[0];
+            const rid = parseInt(parts[1], 10);
+            if (!hiddenMap[mid]) hiddenMap[mid] = [];
+            hiddenMap[mid].push(rid);
+        }
+    });
+    
+    const hiddenModelObjectIds = Object.keys(hiddenMap).map(mid => ({
+        modelId: mid,
+        objectRuntimeIds: hiddenMap[mid]
+    }));
+    
+    if (hiddenModelObjectIds.length > 0) {
+        try {
+            if (API.viewer.setObjectState) {
+                await API.viewer.setObjectState({ modelObjectIds: hiddenModelObjectIds }, { visible: false });
+            }
+            if (API.viewer.setVisibility) {
+                await API.viewer.setVisibility({ modelObjectIds: hiddenModelObjectIds }, false);
+            }
+        } catch(e) {
+            console.warn("Feil ved innsending av synlighet til 3D:", e);
+        }
+    }
+};
 
 $('saveStateBtn').addEventListener('click', () => {
     const stateObj = {
@@ -344,7 +403,7 @@ $('saveStateBtn').addEventListener('click', () => {
         localStorage.setItem('rds_editor_tree_state', JSON.stringify(stateObj));
         setStatus('✅ Tre-status (Ferdig/Fryst) ble lagret trygt i nettleseren.', 'ok');
     } catch(e) {
-        setStatus('❌ Klarte ikke lagre status (sjekk sikkerhetsinnstillinger i nettleseren).', 'error');
+        setStatus('❌ Klarte ikke lagre status (sjekk sikkerhetsinnstillinger).', 'error');
     }
 });
 
@@ -358,7 +417,10 @@ $('loadStateBtn').addEventListener('click', () => {
             
             window.applyDoneStateToTree();
             window.applyVisibilityToTree(); 
-            setStatus('✅ Hentet og brukte tidligere lagret tre-status.', 'ok');
+            
+            window.pushVisibilityTo3D();
+            
+            setStatus('✅ Hentet lagret status og oppdaterte 3D-visningen.', 'ok');
         } else {
             setStatus('⚠️ Fant ingen tidligere lagret status.', 'warn');
         }
@@ -695,10 +757,14 @@ async function kjorSkanner() {
             return;
         }
         
-        for (const sel of selection) {
-            if (sel.objectRuntimeIds && sel.objectRuntimeIds.length > 0) {
-                targetMap[sel.modelId] = sel.objectRuntimeIds;
-            }
+        const selectedSafeSet = extractSafeIds(selection);
+        
+        for (const safeId of selectedSafeSet) {
+            const parts = safeId.split('_');
+            const mid = parts[0];
+            const rid = parseInt(parts[1], 10);
+            if (!targetMap[mid]) targetMap[mid] = [];
+            targetMap[mid].push(rid);
         }
 
         const CHUNK = 200;
