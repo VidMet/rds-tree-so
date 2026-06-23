@@ -56,4 +56,4 @@ For at endringene du gjorde i nettleseren skal bli permanente, må de skrives in
 **Viktig:** Programmet overskriver IFC-filene i mappen du velger. Sørg for at du har en backup eller bruker et versjonskontrollsystem dersom det er behov for det.
 
 ---
-*Utviklet for Norconsult Norge.*
+***Utviklet av** Vidar Metveit* ***for** Norconsult Norge AS.*
