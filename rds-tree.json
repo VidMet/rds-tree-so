@@ -1,7 +1,7 @@
 {
   "title": "RDS-tree E6 Storhove-Øyer",
   "icon": "https://vidmet.github.io/rds-tree-so/diagram.png",
-  "url": "https://vidmet.github.io/rds-tree-so/index.html?v=99",
+  "url": "https://vidmet.github.io/rds-tree-so/index.html",
   "description": "Visning av RDS-struktur for E6 Storhove-Øyer",
   "enabled": true,
   "info": "https://vidmet.github.io/rds-tree-so/README.md"
