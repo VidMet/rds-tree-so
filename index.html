@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.25</title>
+  <title>RDS Universal Editor v3.26</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -178,7 +178,7 @@
     <img src="norconsult-logo-black.png" alt="Norconsult">
   </div>
   <div class="app-title">
-    <b>RDS Universal Editor v3.25</b>
+    <b>RDS Universal Editor v3.26</b>
     <span>Norconsult Norge</span>
     <em>Developed by Norconsult. Kontaktperson: Vidar.Metveit@norconsult.com</em>
   </div>
@@ -350,6 +350,41 @@ function extractSafeIds(selectionArray) {
 
 function getSelectionSignature(selArray) {
     return Array.from(extractSafeIds(selArray)).sort().join(',');
+}
+
+// --- NY ROBUST ID-JEGER ---
+function extractGuid(obj) {
+    let fallbackGuid = "";
+    
+    // 1. Søk gjennom alle egenskaper først
+    if (obj.properties) {
+        for (const pset of obj.properties) {
+            for (const p of (pset.properties || [])) {
+                if (!p.name || p.value === undefined || p.value === null || p.value === "") continue;
+                const nameLower = String(p.name).trim().toLowerCase();
+                const valStr = String(p.value).trim();
+
+                // Eksakte treff som vi VET er riktige
+                if (nameLower === "guid (ifc)" || nameLower === "guid" || nameLower === "globalid" || nameLower === "ifcguid") {
+                    return valStr; 
+                }
+                // Delvise treff som reserve
+                if (nameLower.includes("guid") || nameLower.includes("globalid") || nameLower === "objid") {
+                    fallbackGuid = valStr; 
+                }
+            }
+        }
+    }
+    
+    // 2. Bruk reserve-egenskap hvis vi fant en
+    if (fallbackGuid !== "") return fallbackGuid;
+    
+    // 3. Fallback til Trimble Connect sine interne ID-er
+    if (obj.externalId && obj.externalId !== "UKJENT_GUID") return obj.externalId;
+    if (obj.globalId && obj.globalId !== "UKJENT_GUID") return obj.globalId;
+    if (obj.ifcGuid && obj.ifcGuid !== "UKJENT_GUID") return obj.ifcGuid;
+    
+    return "UKJENT_GUID";
 }
 
 async function connect(){
@@ -817,10 +852,8 @@ async function kjorSkanner() {
                 propsArr.forEach((obj, index) => {
                     const actualRuntimeId = obj.id || obj.objectRuntimeId || chunk[index];
                     
-                    let globalId = "UKJENT_GUID";
-                    if (obj.externalId) globalId = obj.externalId;
-                    else if (obj.globalId) globalId = obj.globalId;
-                    else if (obj.ifcGuid) globalId = obj.ifcGuid;
+                    // --- BRUKER NY ID-JEGER HER ---
+                    const globalId = extractGuid(obj);
 
                     const flatProps = {};
                     const groupedProps = {}; 
@@ -841,14 +874,6 @@ async function kjorSkanner() {
                                     if (!isSystem) {
                                         if (!groupedProps[psetName]) groupedProps[psetName] = {};
                                         groupedProps[psetName][p.name.trim()] = valStr;
-                                    }
-                                }
-                                
-                                if (nameLower.includes("guid") || nameLower.includes("globalid") || nameLower === "objid") {
-                                    if (nameLower.includes("ifc") || nameLower === "globalid" || nameLower === "objid") {
-                                        globalId = valStr;
-                                    } else if (globalId === "UKJENT_GUID") {
-                                        globalId = valStr;
                                     }
                                 }
                             }
@@ -1080,7 +1105,10 @@ $('queueBtn').addEventListener('click', async () => {
             if (!runtimeIds || runtimeIds.length === 0) continue;
             const propsArr = await API.viewer.getObjectProperties(mid, runtimeIds);
             propsArr.forEach((obj, idx) => {
-                let globalId = "UKJENT_GUID";
+                
+                // --- BRUKER NY ID-JEGER HER OGSÅ ---
+                const globalId = extractGuid(obj);
+                
                 const objRuntimeId = obj.id || obj.objectRuntimeId || runtimeIds[idx];
                 const flatProps = {}; 
                 
@@ -1091,10 +1119,6 @@ $('queueBtn').addEventListener('click', async () => {
                                 const nameLower = p.name.trim().toLowerCase();
                                 const valStr = p.value !== undefined && p.value !== null ? String(p.value).trim() : "";
                                 if (valStr !== "") flatProps[nameLower] = valStr;
-                                if (nameLower.includes("guid") || nameLower.includes("globalid") || nameLower === "objid") {
-                                    if (nameLower.includes("ifc") || nameLower === "globalid" || nameLower === "objid") globalId = valStr;
-                                    else if (globalId === "UKJENT_GUID") globalId = valStr;
-                                }
                             }
                         });
                     }
