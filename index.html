@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.28</title>
+  <title>RDS Universal Editor v3.29</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -178,7 +178,7 @@
     <img src="norconsult-logo-black.png" alt="Norconsult">
   </div>
   <div class="app-title">
-    <b>RDS Universal Editor v3.28</b>
+    <b>RDS Universal Editor v3.29</b>
     <span>Norconsult Norge</span>
     <em>Developed by Norconsult. Kontaktperson: Vidar.Metveit@norconsult.com</em>
   </div>
@@ -216,6 +216,7 @@
 <div id="statusBar">Kobler til Trimble Connect...</div>
 
 <main id="mainContent">
+  <!-- START-VEILEDNING -->
   <div class="guide-container anim">
     <h2>📘 Kom i gang med RDS Universal Editor</h2>
     <p>Dette er et verktøy utviklet for å forenkle og automatisere håndteringen av RDS-koder og andre IFC-egenskaper direkte i nettleseren.</p>
@@ -277,7 +278,6 @@
 <script>
 let API = null;
 
-// --- NY LOGIKK FOR AUTO-LAGRING AV KØ ---
 let EXPORT_QUEUE = [];
 
 function lagreKoe() {
@@ -294,9 +294,7 @@ function hentKoe() {
     } catch(e){}
 }
 
-// Hent inn køen umiddelbart når siden lastes
 hentKoe();
-// -----------------------------------------
 
 let currentEditTargets = []; 
 let lastClickedElement = null; 
@@ -373,9 +371,15 @@ function getSelectionSignature(selArray) {
     return Array.from(extractSafeIds(selArray)).sort().join(',');
 }
 
+// --- NY OG EKSTREM ID-JEGER ---
 function extractGuid(obj) {
-    let fallbackGuid = "";
-    
+    // 1. Sjekk de standard Trimble Connect attributtene først
+    if (obj.externalId && obj.externalId !== "UKJENT_GUID") return String(obj.externalId);
+    if (obj.globalId && obj.globalId !== "UKJENT_GUID") return String(obj.globalId);
+    if (obj.ifcGuid && obj.ifcGuid !== "UKJENT_GUID") return String(obj.ifcGuid);
+    if (obj.guid && obj.guid !== "UKJENT_GUID") return String(obj.guid);
+
+    // 2. Trål gjennom alle Psets og egenskaper
     if (obj.properties) {
         for (const pset of obj.properties) {
             for (const p of (pset.properties || [])) {
@@ -383,22 +387,28 @@ function extractGuid(obj) {
                 const nameLower = String(p.name).trim().toLowerCase();
                 const valStr = String(p.value).trim();
 
-                if (nameLower === "guid (ifc)" || nameLower === "guid" || nameLower === "globalid" || nameLower === "ifcguid") {
-                    return valStr; 
-                }
+                // Fanger opp alle varianter av GUID/ObjID
                 if (nameLower.includes("guid") || nameLower.includes("globalid") || nameLower === "objid") {
-                    fallbackGuid = valStr; 
+                    return valStr; 
                 }
             }
         }
     }
     
-    if (fallbackGuid !== "") return fallbackGuid;
-    
-    if (obj.externalId && obj.externalId !== "UKJENT_GUID") return obj.externalId;
-    if (obj.globalId && obj.globalId !== "UKJENT_GUID") return obj.globalId;
-    if (obj.ifcGuid && obj.ifcGuid !== "UKJENT_GUID") return obj.ifcGuid;
-    
+    // 3. Ekstrem regex-jakt: Hvis ID-en ligger skjult i objektet uten navn!
+    try {
+        const jsonStr = JSON.stringify(obj);
+        // IFC-GUID er alltid nøyaktig 22 tegn (base64)
+        const ifcGuidMatch = jsonStr.match(/([a-zA-Z0-9_$]{22})/);
+        if (ifcGuidMatch) return ifcGuidMatch[1];
+        
+        // Vanlig GUID er 36 tegn
+        const normalGuidMatch = jsonStr.match(/([a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})/);
+        if (normalGuidMatch) return normalGuidMatch[1];
+    } catch(e) {}
+
+    // 4. Feilsøking (sladrer i konsollen)
+    console.error("⚠️ FANT INGEN GUID FOR DETTE OBJEKTET! Trykk F12 i nettleseren og se under for å inspisere kildekoden til objektet:", obj);
     return "UKJENT_GUID";
 }
 
@@ -947,8 +957,6 @@ async function kjorSkanner() {
         }
 
         tegnOppTre(GLOBAL_RDS_TREE, $('mainContent'));
-        
-        // Pga hentKoe() vil eksport-køen allerede ligge i minnet her!
         updateEditedIndicators();
         updateColorIndicatorsUI(); 
         
@@ -1100,7 +1108,7 @@ function oppdaterUI() {
 $('clearBtn').addEventListener('click', () => {
     if (!confirm(`Er du sikker på at du vil tømme eksport-køen for ${EXPORT_QUEUE.length} objekter? Dette kan ikke angres.`)) return;
     EXPORT_QUEUE = [];
-    lagreKoe(); // Oppdaterer lagringen
+    lagreKoe(); 
     oppdaterUI();
     updateEditedIndicators();
     setStatus('🗑️ Køen er tømt.', 'ok');
@@ -1156,7 +1164,7 @@ $('queueBtn').addEventListener('click', async () => {
             });
         }
         
-        if (addedCount > 0) lagreKoe(); // Lagrer til minnet!
+        if (addedCount > 0) lagreKoe(); 
         
         oppdaterUI(); 
         updateEditedIndicators();
@@ -1174,7 +1182,6 @@ $('exportBtn').addEventListener('click', () => {
         a.href = url; a.download = `update-properties.json`;
         document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
         
-        // FJERNET sletting av kø herfra, slik at ingenting mistes!
         setStatus(`🎉 Eksporterte JSON for ${EXPORT_QUEUE.length} objekter. Husk å tømme køen manuelt når du er ferdig!`, 'ok');
     } catch (error) { setStatus(`❌ Feil under eksport: ${error.message}`, 'error'); }
 });
