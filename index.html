@@ -4,98 +4,1564 @@
   <meta charset="UTF-8"/>
   <title>RDS Universal Editor v3.32</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
+  
   <style>
-    /* (CSS beholdes som før, lagt inn for komplett fil) */
-    :root { --blue: #1d4ed8; --bg: #f3f4f6; --ink: #111827; }
-    body { font-family: sans-serif; background: var(--bg); margin: 0; display: flex; flex-direction: column; height: 100vh; }
-    .topbar { padding: 10px; background: white; border-bottom: 1px solid #ccc; display: flex; gap: 10px; align-items: center; }
-    #mainContent { flex: 1; overflow-y: auto; padding: 10px; }
-    .btn { padding: 8px 12px; cursor: pointer; border-radius: 4px; border: none; background: var(--blue); color: white; }
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;600;700;800&display=swap');
+
+    :root {
+      --bg:        #f3f4f6;      
+      --surface:   #ffffff;      
+      --surface2:  #e5e7eb;      
+      --border:    #d1d5db;      
+      --ink:       #111827;      
+      --muted:     #6b7280;      
+      --blue:      #1d4ed8;      
+      --blue-dim:  #dbeafe;
+      --green:     #166534;      
+      --green-dim: #dcfce7;
+      --red:       #b91c1c;
+      --red-dim:   #fee2e2;
+      --ok:        #22a06b;
+      --warn:      #f79009;
+      --bad:       #d92d20;
+      
+      --mono:      'JetBrains Mono', monospace;
+      --sans:      'Syne', sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      background: var(--bg); color: var(--ink); font-family: var(--sans);
+      height: 100%; margin: 0; padding: 0;
+      display: flex; flex-direction: column; overflow: hidden;
+      min-width: 380px; 
+    }
+
+    /* --- HEADER STYLING --- */
+    .topbar {
+      height: 92px; background: #fff; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 18px; padding: 10px 18px; flex: 0 0 auto;
+    }
+    .logo-card {
+      width: 145px; height: 68px; border: 1px solid var(--border); border-radius: 12px;
+      background: #fff; display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 14px rgba(16,24,40,.08); overflow: hidden; flex-shrink: 0;
+    }
+    .logo-card img { max-width: 128px; max-height: 50px; object-fit: contain; }
+    .app-title { display: flex; flex-direction: column; line-height: 1.2; }
+    .app-title b { font-size: 18px; color: #0050b5; }
+    .app-title span { font-size: 14px; font-weight: 600; }
+    .app-title em { font-size: 12px; color: #667085; font-style: normal; }
+    
+    .header-right { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+    .help-link { font-size: 12px; color: var(--blue); text-decoration: none; font-weight: 700; transition: opacity 0.2s; display: flex; align-items: center; gap: 4px; }
+    .help-link:hover { opacity: 0.7; text-decoration: underline; }
+    
+    .status { display: flex; align-items: center; gap: 7px; color: #667085; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #98a2b3; flex-shrink: 0; }
+    .dot.live { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+    .dot.warn { background: var(--warn); }
+    .dot.error { background: var(--bad); }
+
+    .badge { font-family: var(--mono); font-size: 10px; padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+
+    .btn { font-family: var(--sans); font-size: 11px; font-weight: 700; padding: 7px 10px; border-radius: 6px; border: none; cursor: pointer; transition: opacity .15s, transform .1s; white-space: nowrap; }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn:not(:disabled):hover { opacity: .85; }
+    .btn:not(:disabled):active { transform: scale(.97); }
+    
+    .btn-primary { background: var(--blue); color: #ffffff; }
+    .btn-success { background: var(--green); color: #ffffff; }
+    .btn-danger { background: var(--surface2); color: var(--red); border: 1px solid var(--border); }
+    
+    .btn-color { background: #8b5cf6; color: #ffffff; }
+    .btn-color-reset { background: var(--surface2); color: #8b5cf6; border: 1px solid var(--border); padding: 7px 8px; }
+
+    .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--ink); }
+    .btn-outline:hover:not(:disabled) { background: var(--surface2); }
+
+    #editPanel { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
+    .input-field { font-family: var(--mono); font-size: 12px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; width: 140px; }
+
+    main { flex: 1 1 auto; overflow-y: auto; padding: 16px; height: 0; position: relative; }
+
+    /* --- GUIDE STYLING --- */
+    .guide-container { max-width: 750px; margin: 0 auto; padding: 10px 20px; color: var(--ink); line-height: 1.5; font-family: var(--sans); }
+    .guide-container h2 { font-size: 18px; margin-bottom: 12px; color: var(--blue); border-bottom: 1px solid var(--border); padding-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+    .guide-container h3 { font-size: 14px; margin-top: 20px; margin-bottom: 8px; color: var(--ink); }
+    .guide-container p, .guide-container ul { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+    .guide-container ul { padding-left: 20px; }
+    .guide-container li { margin-bottom: 6px; }
+    .guide-container strong { color: var(--ink); }
+    .guide-container code { background: var(--surface2); padding: 2px 5px; border-radius: 4px; font-family: var(--mono); font-size: 11px; color: var(--ink); }
+
+    .tree-container { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px 12px 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+    .tree-node { margin-left: 14px; position: relative; }
+    .tree-node::before { content: ""; position: absolute; top: 0; left: -8px; bottom: 0; border-left: 1px solid var(--border); }
+    .tree-node:last-child::before { bottom: auto; height: 16px; }
+    
+    .tree-header { display: flex; align-items: center; padding: 6px 8px; cursor: pointer; border-radius: 6px; transition: background 0.1s, opacity 0.3s, filter 0.3s; margin-top: 2px; user-select: none; }
+    .tree-header:hover { background: var(--bg); }
+    .tree-header.active { background: var(--surface2); border: 1px dashed var(--muted); }
+    
+    .tree-arrow { font-size: 10px; color: var(--muted); width: 16px; text-align: center; margin-right: 4px; }
+    .tree-title { flex: 1; font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.3s; }
+    .tree-count { font-family: var(--mono); font-size: 10px; color: var(--muted); background: var(--bg); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border); margin-left: 8px; }
+    
+    .tree-children { display: none; }
+    
+    .tree-object { display: flex; align-items: center; justify-content: space-between; margin-left: 14px; padding: 6px 8px 6px 28px; font-size: 12px; color: var(--ink); cursor: pointer; transition: background 0.1s, opacity 0.3s, filter 0.3s; border-radius: 4px; position: relative; margin-top: 2px; user-select: none; }
+    .tree-object::before { content: ""; position: absolute; top: 0; left: -8px; bottom: auto; height: 16px; border-left: 1px solid var(--border); border-bottom: 1px solid var(--border); width: 12px; }
+    .tree-object:hover { background: var(--blue-dim); color: var(--blue); }
+    .tree-object.active { background: var(--blue-dim); color: var(--blue); font-weight: 600; }
+    .tree-object::after { content: "🧊"; position: absolute; left: 10px; font-size: 10px; }
+    .tree-object-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color 0.3s; user-select: none; }
+
+    .tree-edit-btn { margin-left: 8px; cursor: pointer; opacity: 0.4; font-size: 11px; padding: 3px 6px; border-radius: 4px; border: 1px solid transparent; white-space: nowrap; transition: all 0.15s; }
+    .tree-edit-btn:hover { opacity: 1; background: var(--surface2); border-color: var(--border); }
+    .tree-edit-btn.is-edited { opacity: 1; background: var(--red-dim); color: var(--red); border-color: var(--red); font-weight: bold; }
+
+    /* "FERDIG" STATUS */
+    .tree-object.is-done, .tree-header.is-done { background-color: var(--green-dim) !important; border-color: transparent; }
+    .tree-object.is-done .tree-object-name, .tree-header.is-done .tree-title { color: var(--green); }
+    .tree-object.is-done.active, .tree-header.is-done.active { background-color: #bbf7d0 !important; border: 1px dashed var(--green) !important; }
+
+    /* DUSE NED SKJULTE/ISOLERTE OBJEKTER/MAPPER */
+    .is-hidden { opacity: 0.35 !important; filter: grayscale(100%) !important; }
+    .is-hidden .tree-title, .is-hidden .tree-object-name { font-style: italic; color: var(--muted); }
+
+    .color-indicator { display: none; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; border: 1px solid rgba(0,0,0,0.2); flex-shrink: 0; }
+    .empty { text-align: center; padding: 40px 20px; color: var(--muted); font-size: 13px; }
+
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 1000; padding:20px; }
+    .modal-box { background: var(--surface); padding: 20px; border-radius: 8px; width: 440px; max-height: 90vh; box-shadow: 0 4px 12px rgba(0,0,0,0.15); border: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; }
+    .modal-box h3 { margin: 0 0 4px 0; font-size: 15px; }
+    .modal-box p { margin: 0 0 16px 0; font-size: 11px; color: var(--muted); word-break: break-all; }
+    
+    #modalForm { flex-grow: 1; overflow-y: auto; padding-right: 6px; }
+    
+    .pset-group { border: 1px solid var(--border); border-radius: 6px; margin-bottom: 10px; overflow: hidden; }
+    .pset-summary { background: var(--surface2); padding: 8px 12px; font-weight: bold; font-size: 12px; cursor: pointer; user-select: none; display: flex; justify-content: space-between; align-items: center; outline: none; }
+    .pset-summary::-webkit-details-marker { display: none; }
+    .pset-summary::after { content: '▼'; font-size: 10px; color: var(--muted); }
+    details[open] .pset-summary::after { content: '▲'; }
+    .pset-content { padding: 12px; background: var(--surface); border-top: 1px solid var(--border); }
+
+    .modal-form-group { margin-bottom: 12px; }
+    .modal-form-group:last-child { margin-bottom: 0; }
+    .modal-form-group label { display: block; font-size: 11px; font-weight: bold; margin-bottom: 4px; color: var(--ink); }
+    .modal-form-group input { width: 100%; font-family: var(--mono); transition: background-color 0.3s; }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--muted); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--ink); }
+    
+    .divider { width: 1px; height: 24px; background: var(--border); margin: 0 4px; }
+    
+    @media(max-width:760px) {
+      .topbar { height: auto; padding: 8px; flex-wrap: wrap; }
+      .logo-card { width: 120px; height: 58px; }
+      .app-title b { font-size: 15px; }
+      .app-title span { font-size: 12px; }
+      .app-title em { display: none; }
+    }
   </style>
 </head>
 <body>
 
 <header class="topbar">
-  <b>RDS Editor v3.32</b>
-  <button class="btn" id="scanSelBtn">▶ Bygg tre</button>
-  <button class="btn" id="exportBtn">💾 Eksporter (0)</button>
+  <div class="logo-card">
+    <img src="norconsult-logo-black.png" alt="Norconsult">
+  </div>
+  <div class="app-title">
+    <b>RDS Universal Editor v3.32</b>
+    <span>Norconsult Norge</span>
+    <em>Developed by Norconsult. Kontaktperson: Vidar.Metveit@norconsult.com</em>
+  </div>
+  <div class="header-right">
+    <a href="https://github.com/VidMet/rds-tree-so/blob/main/README.md" target="_blank" class="help-link">📘 Brukerveiledning</a>
+    <div class="status">
+      <span id="statusText">Frakoblet</span>
+      <span id="statusDot" class="dot"></span>
+    </div>
+  </div>
 </header>
 
+<div id="editPanel">
+  <button class="btn btn-primary" id="scanSelBtn" disabled title="Bruk Ctrl+A (eller marker objekter) i 3D-modellen først!">▶ Bygg tre</button>
+  
+  <div class="divider"></div>
+  <button class="btn btn-outline" id="saveStateBtn" title="Lagre nåværende Ferdig/Fryst-status i nettleseren" disabled>💾 Lagre tre-status</button>
+  <button class="btn btn-outline" id="loadStateBtn" title="Hent forrige lagrede status for dette treet" disabled>📂 Hent tre-status</button>
+  
+  <div class="divider"></div>
+  <input type="text" id="newRunningNumber" class="input-field" placeholder="Nytt løp.nr (eks: 04)">
+  <button class="btn btn-primary" id="queueBtn" disabled>➕ Hurtigoppdater</button>
+  
+  <button class="btn btn-color" id="colorBtn" title="Fargelegg HHH-grupperinger" disabled>🎨 Fargelegg (HHH)</button>
+  <button class="btn btn-color-reset" id="resetColorBtn" title="Fjern farger" style="display:none;">💧</button>
+  
+  <div style="flex-grow: 1;"></div>
+  
+  <button class="btn btn-success" id="toggleDoneBtn" title="Marker valgte objekter som ferdig (dus grønn)" disabled>✅ Ferdig</button>
+  <button class="btn btn-outline" id="syncVisBtn" title="Oppdater treet basert på skjulte og ut-isolerte objekter i 3D-visningen" disabled>👁️ Synk visning</button>
+  <button class="btn btn-danger" id="clearBtn" disabled>Tøm</button>
+  <button class="btn btn-success" id="exportBtn" disabled>💾 Eksporter (0)</button>
+</div>
+
+<div id="statusBar">Kobler til Trimble Connect...</div>
+
 <main id="mainContent">
-  <div id="status">Venter...</div>
+  <div class="guide-container anim">
+    <h2>📘 Kom i gang med RDS Universal Editor</h2>
+    <p>Dette er et verktøy utviklet for å forenkle og automatisere håndteringen av RDS-koder og andre IFC-egenskaper direkte i nettleseren.</p>
+    
+    <h3>1. Slik henter du inn modellen</h3>
+    <ul>
+      <li>Marker de objektene du vil jobbe med i 3D-modellen (bruk gjerne <code>Ctrl + A</code> for å velge alt).</li>
+      <li>Trykk på den blå knappen <strong>"▶ Bygg tre"</strong> oppe til venstre i verktøylinjen.</li>
+      <li>Utvidelsen analyserer nå egenskapene og bygger et sortert mappetre basert på RDS-strukturen.</li>
+    </ul>
+
+    <h3>2. Navigasjon og Synkronisering</h3>
+    <ul>
+      <li><strong>Toveis-synk:</strong> Klikk på et objekt i treet for å zoome til det i 3D-modellen. Klikker du på et objekt i 3D-modellen, vil treet automatisk åpne mappen og scrolle ned til det.</li>
+      <li>🎨 <strong>Fargelegg:</strong> Bruk farge-knappen til å gi objektene unike farger basert på deres 3-bokstavs RDS-gruppe for å raskt oppdage feil.</li>
+      <li>👁️ <strong>Skjulte lag:</strong> Hvis du skjuler eller isolerer lag i 3D-visningen, "duses" objektene ned i treet slik at du ser at de er fryst.</li>
+    </ul>
+
+    <h3>3. Redigering og Status</h3>
+    <ul>
+      <li>Klikk på <strong>blyant-ikonet (✏️)</strong> for å redigere et enkelt objekt, eller for å batch-redigere en hel mappe samtidig.</li>
+      <li>✅ <strong>Ferdig-markering:</strong> Har du kontrollert et objekt? Marker det og trykk "Ferdig" for å farge det grønt i treet.</li>
+      <li>💾 <strong>Lagre tre-status:</strong> Skal du ta kvelden? Trykk "Lagre tre-status" slik at nettleseren husker hva du har fryst og markert som ferdig til neste gang.</li>
+    </ul>
+
+    <h3>4. Eksporter og fullfør</h3>
+    <p>Når du har lagt inn endringene dine i køen, trykk <strong>"💾 Eksporter"</strong> helt til høyre. Dette laster ned filen <code>update-properties.json</code> som du deretter kjører gjennom desktop-appen (RDS_Oppdaterer.exe) for å skrive endringene permanent inn i IFC-filen.</p>
+  </div>
 </main>
+
+<div id="editModal" class="modal-overlay" style="display:none;">
+    <div class="modal-box" id="modalBoxInner">
+        <h3 id="modalTitle">Rediger egenskaper</h3>
+        <p id="modalSubtitle"></p>
+        <div id="modalWarning" style="display:none; font-size:11px; color:var(--blue); margin-bottom:12px; background:var(--blue-dim); padding:8px; border-radius:4px;">
+            Advarsel: Verdier du endrer her vil oppdateres for <b>ALLE</b> objektene i mappen.
+        </div>
+        <div id="modalForm"></div>
+        
+        <div id="addPropSection" style="margin-top:16px; padding:12px; background:var(--surface2); border:1px dashed var(--border); border-radius:6px;">
+            <label style="display:block; font-size:11px; font-weight:bold; margin-bottom:6px; color:var(--ink);">➕ Legg til manglende egenskap (i 2_RDS)</label>
+            <div style="display:flex; gap:8px;">
+                <input type="text" id="newPropName" class="input-field" style="flex:1;" placeholder="Navn (Eks: 07. dnn)">
+                <input type="text" id="newPropValue" class="input-field" style="flex:1;" placeholder="Verdi">
+                <button class="btn btn-primary" onclick="addCustomPropToForm()">Legg til</button>
+            </div>
+        </div>
+        
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:20px;">
+            <button class="btn btn-danger" onclick="clearRdsProperties()">🧹 Tøm 2_RDS</button>
+            <div style="display:flex; gap:8px;">
+                <button class="btn btn-danger" onclick="closeModal()">Avbryt</button>
+                <button class="btn btn-success" onclick="saveModal()">Lagre i kø</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <script>
 let API = null;
-let EXPORT_QUEUE = [];
-const $ = id => document.getElementById(id);
 
-async function connect(){
-  API = await window.TrimbleConnectWorkspace.connect(window.parent);
-  $('scanSelBtn').disabled = false;
-  $('status').innerText = "✅ Tilkoblet";
+let EXPORT_QUEUE = [];
+
+function lagreKoe() {
+    try { localStorage.setItem('rds_export_queue', JSON.stringify(EXPORT_QUEUE)); } catch(e){}
 }
 
-// DENNE FUNKSJONEN FINNER NÅ GUID UANSETT HVOR DEN LIGGER
+function hentKoe() {
+    try {
+        const lagret = localStorage.getItem('rds_export_queue');
+        if (lagret) { 
+            EXPORT_QUEUE = JSON.parse(lagret); 
+            oppdaterUI(); 
+        }
+    } catch(e){}
+}
+
+hentKoe();
+
+let currentEditTargets = []; 
+let lastClickedElement = null; 
+let GLOBAL_RDS_TREE = {}; 
+
+window.assignedColorsMap = new Map(); 
+window.globalHiddenSet = new Set();
+window.globalDoneSet = new Set(); 
+
+window.isSyncingTo3D = false; 
+window.syncTimeout = null;
+window.lastSelectionSignature = "";
+
+const LOPENUMMER_EGENSKAPER = [
+    "01. rds-tag", 
+    "15. hhhnnnnn", 
+    "16. hhhnnnnn navn"
+];
+
+const SYSTEM_PSETS = [
+    'calculatedgeometryvalues', 'orientedboundingbox', 'reference object', 
+    'common', 'quantities', 'trimble', 'ifcslab', 'ifcwall', 'ifcalignment'
+];
+
+const PALETTE = [
+    {r:230, g:25,  b:75,  a:255}, {r:60,  g:180, b:75,  a:255}, {r:255, g:225, b:25,  a:255}, 
+    {r:0,   g:130, b:200, a:255}, {r:245, g:130, b:48,  a:255}, {r:145, g:30,  b:180, a:255}, 
+    {r:70,  g:240, b:240, a:255}, {r:240, g:50,  b:230, a:255}, {r:210, g:245, b:60,  a:255}, 
+    {r:250, g:190, b:212, a:255}, {r:0,   g:128, b:128, a:255}, {r:220, g:190, b:255, a:255}, 
+    {r:170, g:110, b:40,  a:255}, {r:255, g:250, b:200, a:255}, {r:128, g:0,   b:0,   a:255}, 
+    {r:170, g:255, b:195, a:255}, {r:128, g:128, b:0,   a:255}, {r:255, g:215, b:180, a:255}, 
+    {r:0,   g:0,   b:128, a:255}, {r:128, g:128, b:128, a:255} 
+];
+
+const UTEN_RDS_MAPPE_NAVN = "[Objekter uten RDS]";
+
+const $ = id => document.getElementById(id);
+
+const setStatus = (m, c='') => { 
+    $('statusText').textContent = m; 
+    let dotClass = 'dot';
+    if (c === 'ok') dotClass = 'dot live';
+    else if (c === 'error') dotClass = 'dot error';
+    else if (c === 'warn') dotClass = 'dot warn';
+    $('statusDot').className = dotClass; 
+};
+
+function escapeHTML(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
+
+function naturligSortering(a, b) {
+    return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+function extractSafeIds(selectionArray) {
+    const safeSet = new Set();
+    if (!selectionArray || !selectionArray.length) return safeSet;
+    
+    selectionArray.forEach(sel => {
+        const mid = String(sel.modelId || sel.modelid || sel.id || "unknown");
+        const rids = sel.objectRuntimeIds || sel.objectRuntimeids || sel.objects || [];
+        
+        rids.forEach(rid => {
+            const cleanRid = String((typeof rid === 'object' && rid !== null) ? (rid.id || rid.objectRuntimeId) : rid);
+            safeSet.add(`${mid}_${cleanRid}`);
+        });
+    });
+    return safeSet;
+}
+
+function getSelectionSignature(selArray) {
+    return Array.from(extractSafeIds(selArray)).sort().join(',');
+}
+
+// --- NY OG FORBEDRET ID-JEGER ---
 function extractGuid(obj) {
-    // 1. Sjekk alle Psets (inkludert system-psets som "2_RDS" eller "Reference Object")
+    // 1. Sjekk alle Psets
     if (obj.properties) {
         for (const pset of obj.properties) {
             for (const p of (pset.properties || [])) {
-                if (!p.name || p.value === undefined) continue;
+                if (!p.name || p.value === undefined || p.value === null) continue;
                 
-                const val = String(p.value).trim();
+                const valStr = String(p.value).trim();
                 
                 // Sjekk om verdien inneholder "id. " slik som i bildet ditt
-                if (val.startsWith("id. ")) {
-                    return val.replace("id. ", "");
+                if (valStr.startsWith("id. ")) {
+                    return valStr.replace("id. ", "");
                 }
                 
                 // Sjekk om navnet er eksplisitt GUID
-                const name = String(p.name).trim().toLowerCase();
-                if (name === "guid (ifc)" || name === "globalid") {
-                    return val;
+                const nameLower = String(p.name).trim().toLowerCase();
+                if (nameLower === "guid (ifc)" || nameLower === "guid (ms)" || nameLower === "globalid" || nameLower === "ifcguid" || nameLower === "guid") {
+                    return valStr; 
                 }
             }
         }
     }
-    return obj.externalId || "UKJENT_GUID";
+    
+    // 2. Standard Trimble Connect attributter
+    if (obj.externalId && obj.externalId !== "UKJENT_GUID") return String(obj.externalId);
+    if (obj.globalId && obj.globalId !== "UKJENT_GUID") return String(obj.globalId);
+    if (obj.ifcGuid && obj.ifcGuid !== "UKJENT_GUID") return String(obj.ifcGuid);
+    if (obj.guid && obj.guid !== "UKJENT_GUID") return String(obj.guid);
+
+    // 3. Ekstrem regex-jakt
+    try {
+        const jsonStr = JSON.stringify(obj);
+        const ifcGuidMatch = jsonStr.match(/([a-zA-Z0-9_$]{22})/);
+        if (ifcGuidMatch) return ifcGuidMatch[1];
+        
+        const normalGuidMatch = jsonStr.match(/([a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})/);
+        if (normalGuidMatch) return normalGuidMatch[1];
+    } catch(e) {}
+    
+    return "UKJENT_GUID";
 }
 
-async function kjorSkanner() {
-    const selection = await API.viewer.getSelection();
-    EXPORT_QUEUE = [];
+async function connect(){
+  try {
+    API = await window.TrimbleConnectWorkspace.connect(window.parent);
+    $('scanSelBtn').disabled = false;
+    $('queueBtn').disabled = false;
+    $('syncVisBtn').disabled = false;
+    $('toggleDoneBtn').disabled = false;
+    $('saveStateBtn').disabled = false;
+    $('loadStateBtn').disabled = false;
+    setStatus('✅ Klar til å bygge tre fra markering.', 'ok');
     
-    for (const sel of selection) {
-        const propsArr = await API.viewer.getObjectProperties(sel.modelId, sel.objectRuntimeIds);
-        
-        propsArr.forEach((obj, idx) => {
-            const guid = extractGuid(obj); // Bruker den nye jegeren
-            const rid = obj.id || obj.objectRuntimeId || sel.objectRuntimeIds[idx];
-            
-            // Lagre i køen
-            EXPORT_QUEUE.push({
-                GUID: guid,
-                modelId: sel.modelId,
-                runtimeId: rid,
-                egenskaperSomSkalEndres: { "PNS Navn": "Midtskog" } // Eksempel
-            });
+    setInterval(async () => {
+        if (!API || !API.viewer || window.isSyncingTo3D) return;
+        try {
+            const sel = await API.viewer.getSelection();
+            const sig = getSelectionSignature(sel);
+            if (sig !== window.lastSelectionSignature) {
+                window.lastSelectionSignature = sig;
+                window.syncTreeFrom3DSelection(sel);
+            }
+        } catch(e) {}
+    }, 500);
+
+    if (API.viewer.onObjectVisibilityChanged) {
+        API.viewer.onObjectVisibilityChanged((payload) => {
+            try {
+                let changes = Array.isArray(payload) ? payload : [payload];
+                changes.forEach(change => {
+                    if (change.modelId && change.objectRuntimeIds) {
+                        const isHidden = (change.visible === false || change.state === 'hidden');
+                        change.objectRuntimeIds.forEach(rid => {
+                            const cleanRid = (typeof rid === 'object' && rid !== null) ? (rid.id || rid.objectRuntimeId) : rid;
+                            const key = `${change.modelId}_${cleanRid}`;
+                            if (isHidden) { window.globalHiddenSet.add(key); } 
+                            else { window.globalHiddenSet.delete(key); }
+                        });
+                    }
+                });
+                window.applyVisibilityToTree();
+            } catch(e) { console.error("Event error:", e); }
         });
     }
     
-    $('exportBtn').innerText = `💾 Eksporter (${EXPORT_QUEUE.length})`;
-    $('status').innerText = `✅ Fant ${EXPORT_QUEUE.length} objekter med GUID: ${EXPORT_QUEUE[0].GUID}`;
+  } catch(e) { 
+    setStatus('❌ Kunne ikke koble til API.', 'error'); 
+  }
 }
 
-$('scanSelBtn').addEventListener('click', kjorSkanner);
-$('exportBtn').addEventListener('click', () => {
-    const blob = new Blob([JSON.stringify(EXPORT_QUEUE, null, 2)], { type: "application/json" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "update-properties.json";
-    a.click();
+window.pushVisibilityTo3D = async function() {
+    if (!API || !API.viewer) return;
+    
+    const hiddenMap = {};
+    window.globalHiddenSet.forEach(key => {
+        const parts = key.split('_');
+        if (parts.length >= 2) {
+            const mid = parts[0];
+            const rid = parseInt(parts[1], 10);
+            if (!hiddenMap[mid]) hiddenMap[mid] = [];
+            hiddenMap[mid].push(rid);
+        }
+    });
+    
+    const hiddenModelObjectIds = Object.keys(hiddenMap).map(mid => ({
+        modelId: mid,
+        objectRuntimeIds: hiddenMap[mid]
+    }));
+    
+    if (hiddenModelObjectIds.length > 0) {
+        try {
+            if (API.viewer.setObjectState) {
+                await API.viewer.setObjectState({ modelObjectIds: hiddenModelObjectIds }, { visible: false });
+            }
+            if (API.viewer.setVisibility) {
+                await API.viewer.setVisibility({ modelObjectIds: hiddenModelObjectIds }, false);
+            }
+        } catch(e) {
+            console.warn("Feil ved innsending av synlighet til 3D:", e);
+        }
+    }
+};
+
+$('saveStateBtn').addEventListener('click', () => {
+    const stateObj = {
+        done: Array.from(window.globalDoneSet),
+        hidden: Array.from(window.globalHiddenSet)
+    };
+    try {
+        localStorage.setItem('rds_editor_tree_state', JSON.stringify(stateObj));
+        setStatus('✅ Tre-status (Ferdig/Fryst) ble lagret trygt i nettleseren.', 'ok');
+    } catch(e) {
+        setStatus('❌ Klarte ikke lagre status (sjekk sikkerhetsinnstillinger).', 'error');
+    }
 });
+
+$('loadStateBtn').addEventListener('click', () => {
+    try {
+        const stateStr = localStorage.getItem('rds_editor_tree_state');
+        if (stateStr) {
+            const stateObj = JSON.parse(stateStr);
+            window.globalDoneSet = new Set(stateObj.done || []);
+            window.globalHiddenSet = new Set(stateObj.hidden || []);
+            
+            window.applyDoneStateToTree();
+            window.applyVisibilityToTree(); 
+            
+            window.pushVisibilityTo3D();
+            
+            setStatus('✅ Hentet lagret status og oppdaterte 3D-visningen.', 'ok');
+        } else {
+            setStatus('⚠️ Fant ingen tidligere lagret status.', 'warn');
+        }
+    } catch(e) {
+        setStatus('❌ Klarte ikke hente lagret status.', 'error');
+    }
+});
+
+window.syncTreeFrom3DSelection = async function(selection) {
+    if (!API || !API.viewer) return;
+    try {
+        const selectedSet = extractSafeIds(selection);
+        let scrolled = false;
+
+        document.querySelectorAll('.tree-object').forEach(objDiv => {
+            const rawId = objDiv.getAttribute('data-id');
+            if (!rawId) return;
+            
+            const isSelected = selectedSet.has(rawId);
+
+            if (isSelected) {
+                objDiv.classList.add('active');
+                
+                let parent = objDiv.parentElement;
+                while (parent && parent.id !== 'mainContent') {
+                    if (parent.classList.contains('tree-children')) {
+                        parent.style.display = 'block';
+                        const header = parent.previousElementSibling;
+                        if (header && header.classList.contains('tree-header')) {
+                            const arrow = header.querySelector('.tree-arrow');
+                            if (arrow) arrow.innerText = '▼';
+                        }
+                    }
+                    parent = parent.parentElement;
+                }
+                
+                if (!scrolled) {
+                    try { objDiv.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e){}
+                    scrolled = true;
+                }
+            } else {
+                objDiv.classList.remove('active');
+            }
+        });
+
+        document.querySelectorAll('.tree-header').forEach(headerDiv => {
+            const idsStr = headerDiv.getAttribute('data-folder-ids');
+            if (!idsStr) return;
+            const ids = idsStr.split(',').filter(x => x);
+            if (ids.length > 0) {
+                const allSelected = ids.every(id => selectedSet.has(id));
+                if (allSelected) {
+                    headerDiv.classList.add('active');
+                } else {
+                    headerDiv.classList.remove('active');
+                }
+            }
+        });
+    } catch (e) {
+        console.warn("Feil ved tre-synkronisering fra 3D", e);
+    }
+};
+
+window.applyVisibilityToTree = function() {
+    document.querySelectorAll('.tree-object').forEach(objDiv => {
+        const id = objDiv.getAttribute('data-id');
+        if (window.globalHiddenSet.has(id)) {
+            objDiv.classList.add('is-hidden');
+        } else {
+            objDiv.classList.remove('is-hidden');
+        }
+    });
+
+    document.querySelectorAll('.tree-header').forEach(headerDiv => {
+        const idsStr = headerDiv.getAttribute('data-folder-ids');
+        if (!idsStr) return;
+        const ids = idsStr.split(',').filter(x => x);
+        if (ids.length > 0) {
+            const allHidden = ids.every(id => window.globalHiddenSet.has(id));
+            if (allHidden) {
+                headerDiv.classList.add('is-hidden');
+            } else {
+                headerDiv.classList.remove('is-hidden');
+            }
+        }
+    });
+};
+
+window.syncVisibility = async function() {
+    if (!API || !API.viewer || !API.viewer.getObjects) return -1;
+    try {
+        const visibleData = await API.viewer.getObjects(undefined, { visible: true });
+        const visibleSet = extractSafeIds(visibleData);
+        let hiddenCount = 0;
+        window.globalHiddenSet.clear();
+
+        document.querySelectorAll('.tree-object').forEach(objDiv => {
+            const id = objDiv.getAttribute('data-id');
+            if (!visibleSet.has(id)) {
+                window.globalHiddenSet.add(id);
+                hiddenCount++;
+            }
+        });
+        
+        window.applyVisibilityToTree();
+        return hiddenCount;
+    } catch (e) {
+        console.warn("Kunne ikke synkronisere synlighet", e);
+        return -1;
+    }
+};
+
+$('syncVisBtn').addEventListener('click', () => {
+    setStatus('⏳ Synkroniserer synlighet og isolasjon...', '');
+    window.syncVisibility().then((count) => {
+        if(count >= 0) {
+            setStatus(`✅ Treet er oppdatert. Dusert ned ${count} skjulte/isolerte objekter.`, 'ok');
+        } else {
+            setStatus(`❌ Klarte ikke hente synlighet fra 3D-visningen.`, 'error');
+        }
+    });
+});
+
+window.applyDoneStateToTree = function() {
+    document.querySelectorAll('.tree-object').forEach(objDiv => {
+        const id = objDiv.getAttribute('data-id');
+        if (window.globalDoneSet.has(id)) {
+            objDiv.classList.add('is-done');
+        } else {
+            objDiv.classList.remove('is-done');
+        }
+    });
+
+    document.querySelectorAll('.tree-header').forEach(headerDiv => {
+        const idsStr = headerDiv.getAttribute('data-folder-ids');
+        if (!idsStr) return;
+        const ids = idsStr.split(',').filter(x => x);
+        if (ids.length > 0) {
+            const allDone = ids.every(id => window.globalDoneSet.has(id));
+            if (allDone) {
+                headerDiv.classList.add('is-done');
+            } else {
+                headerDiv.classList.remove('is-done');
+            }
+        }
+    });
+};
+
+$('toggleDoneBtn').addEventListener('click', () => {
+    const activeElements = document.querySelectorAll('.tree-header.active, .tree-object.active');
+    if (activeElements.length === 0) {
+        alert("Marker en mappe eller et objekt i treet først for å sette det som ferdig.");
+        return;
+    }
+
+    let allActiveAreDone = true;
+    let idsToToggle = [];
+
+    activeElements.forEach(el => {
+        if (el.classList.contains('tree-object')) {
+            const id = el.getAttribute('data-id');
+            idsToToggle.push(id);
+            if (!window.globalDoneSet.has(id)) allActiveAreDone = false;
+        } else if (el.classList.contains('tree-header')) {
+            const idsStr = el.getAttribute('data-folder-ids');
+            if (idsStr) {
+                const ids = idsStr.split(',').filter(x => x);
+                ids.forEach(id => {
+                    idsToToggle.push(id);
+                    if (!window.globalDoneSet.has(id)) allActiveAreDone = false;
+                });
+            }
+        }
+    });
+
+    idsToToggle.forEach(id => {
+        if (allActiveAreDone) {
+            window.globalDoneSet.delete(id);
+        } else {
+            window.globalDoneSet.add(id);
+        }
+    });
+
+    window.applyDoneStateToTree();
+});
+
+function slaaSammen(props, nøkkel1, nøkkel2) {
+    const val1 = props[nøkkel1] || props[nøkkel1.toLowerCase()];
+    const val2 = props[nøkkel2] || props[nøkkel2.toLowerCase()];
+    if (val1 && val2) return `${val1} - ${val2}`;
+    if (val1) return val1;
+    if (val2) return val2;
+    return "Udefinert";
+}
+
+function updateEditedIndicators() {
+    const queuedIds = new Set(EXPORT_QUEUE.map(q => `${q.modelId}_${q.runtimeId}`));
+    
+    document.querySelectorAll('.tree-object .tree-edit-btn').forEach(btn => {
+        const id = btn.getAttribute('data-id');
+        if (queuedIds.has(id)) {
+            btn.classList.add('is-edited');
+            btn.innerHTML = '✏️ Endret';
+        } else {
+            btn.classList.remove('is-edited');
+            btn.innerHTML = '✏️';
+        }
+    });
+
+    document.querySelectorAll('.tree-header .tree-edit-btn').forEach(btn => {
+        const idsStr = btn.getAttribute('data-folder-ids');
+        if (!idsStr) return;
+        const ids = idsStr.split(',');
+        const allEdited = ids.length > 0 && ids.every(id => queuedIds.has(id));
+        
+        if (allEdited) {
+            btn.classList.add('is-edited');
+            btn.innerHTML = '✏️ Endret';
+        } else {
+            btn.classList.remove('is-edited');
+            btn.innerHTML = '✏️';
+        }
+    });
+}
+
+function updateColorIndicatorsUI() {
+    document.querySelectorAll('.tree-object').forEach(row => {
+        const id = row.getAttribute('data-id');
+        const color = window.assignedColorsMap.get(id);
+        const ind = row.querySelector('.color-indicator');
+        if (ind) {
+            if (color) {
+                ind.style.backgroundColor = color;
+                ind.style.display = 'block';
+            } else {
+                ind.style.display = 'none';
+            }
+        }
+    });
+
+    document.querySelectorAll('.tree-header').forEach(header => {
+        const idsStr = header.getAttribute('data-folder-ids');
+        const depth = parseInt(header.getAttribute('data-depth'), 10);
+        const titleText = header.querySelector('.tree-title').textContent;
+        const ind = header.querySelector('.color-indicator');
+        
+        if (!idsStr || !ind) {
+            if (ind) ind.style.display = 'none';
+            return;
+        }
+        
+        if (depth !== 7 && titleText !== UTEN_RDS_MAPPE_NAVN) {
+            ind.style.display = 'none';
+            return;
+        }
+        
+        const ids = idsStr.split(',');
+        let firstColor = null;
+        let allSame = true;
+        
+        if (ids.length === 0 || ids[0] === "") {
+            allSame = false;
+        } else {
+            for(let id of ids) {
+                if(!id) continue;
+                const c = window.assignedColorsMap.get(id);
+                if (!c) { allSame = false; break; }
+                if (!firstColor) firstColor = c;
+                else if (firstColor !== c) { allSame = false; break; }
+            }
+        }
+        
+        if (allSame && firstColor) {
+            ind.style.backgroundColor = firstColor;
+            ind.style.display = 'block';
+        } else {
+            ind.style.display = 'none';
+        }
+    });
+}
+
+async function sync3DSelection() {
+    const activeElements = document.querySelectorAll('.tree-header.active, .tree-object.active');
+    let combinedMap = {}; 
+    
+    activeElements.forEach(el => {
+        if (el._modelObjectIds) {
+            el._modelObjectIds.forEach(sel => {
+                if (!combinedMap[sel.modelId]) combinedMap[sel.modelId] = new Set();
+                sel.objectRuntimeIds.forEach(id => combinedMap[sel.modelId].add(id));
+            });
+        }
+    });
+    
+    const modelObjectIds = Object.keys(combinedMap).map(mid => ({
+        modelId: mid,
+        objectRuntimeIds: Array.from(combinedMap[mid])
+    }));
+    
+    try {
+        window.isSyncingTo3D = true;
+        if (window.syncTimeout) clearTimeout(window.syncTimeout);
+        
+        window.lastSelectionSignature = getSelectionSignature(modelObjectIds);
+        
+        if (API.viewer.setSelection) {
+            await API.viewer.setSelection({ modelObjectIds: modelObjectIds }, 'set');
+        }
+    } catch(err) { 
+        console.warn("Feil ved multisynkronisering", err); 
+    } finally {
+        window.syncTimeout = setTimeout(() => { window.isSyncingTo3D = false; }, 1000);
+    }
+}
+
+async function kjorSkanner() {
+    if (!API) return;
+    $('scanSelBtn').disabled = true;
+    $('colorBtn').disabled = true;
+    $('mainContent').innerHTML = '';
+    lastClickedElement = null;
+    GLOBAL_RDS_TREE = {}; 
+
+    try {
+        let targetMap = {}; 
+
+        setStatus('⏳ Henter objekter fra din markering i 3D...');
+        const selection = await API.viewer.getSelection();
+        if (!selection || selection.length === 0) {
+            alert("Du må markere objektene i 3D-modellen først (Tips: Bruk Ctrl+A for å velge alt).");
+            setStatus('⚠️ Ingenting er markert i 3D-modellen.', 'warn');
+            $('scanSelBtn').disabled = false;
+            return;
+        }
+        
+        for (const sel of selection) {
+            if (sel.objectRuntimeIds && sel.objectRuntimeIds.length > 0) {
+                targetMap[sel.modelId] = sel.objectRuntimeIds;
+            }
+        }
+
+        const CHUNK = 200;
+        let totalObjects = 0;
+        let manglerRDSCount = 0;
+
+        for (const mid in targetMap) {
+            const objectIds = targetMap[mid];
+            
+            for (let i = 0; i < objectIds.length; i += CHUNK) {
+                const chunk = objectIds.slice(i, i + CHUNK);
+                setStatus(`⏳ Analyserer egenskaper og bygger tre... (${totalObjects + i} objekter skannet)`);
+                const propsArr = await API.viewer.getObjectProperties(mid, chunk);
+                
+                propsArr.forEach((obj, index) => {
+                    const actualRuntimeId = obj.id || obj.objectRuntimeId || chunk[index];
+                    
+                    const globalId = extractGuid(obj);
+
+                    const flatProps = {};
+                    const groupedProps = {}; 
+
+                    (obj.properties || []).forEach(pset => {
+                        if (!pset.name) return;
+                        const psetName = pset.name.trim();
+                        const psetNameLower = psetName.toLowerCase();
+                        const isSystem = psetNameLower.startsWith('ifc') || SYSTEM_PSETS.includes(psetNameLower);
+
+                        (pset.properties || []).forEach(p => {
+                            if (p.name) {
+                                const nameLower = p.name.trim().toLowerCase();
+                                const valStr = p.value !== undefined && p.value !== null ? String(p.value).trim() : "";
+                                
+                                if (valStr !== "") {
+                                    flatProps[nameLower] = valStr;
+                                    if (!isSystem) {
+                                        if (!groupedProps[psetName]) groupedProps[psetName] = {};
+                                        groupedProps[psetName][p.name.trim()] = valStr;
+                                    }
+                                }
+                            }
+                        });
+                    });
+
+                    const nivå1 = flatProps["02. aaaaaa"] || "Udefinert 02. AAAAAA";
+                    const nivå2 = slaaSammen(flatProps, "03. bnn", "04. bnn navn");
+                    const nivå3 = slaaSammen(flatProps, "05. cnn", "06. cnn navn");
+                    const nivå4 = slaaSammen(flatProps, "07. dnn", "08. dnn navn");
+                    const nivå5 = slaaSammen(flatProps, "09. eennn", "10. eennn navn");
+                    const nivå6 = slaaSammen(flatProps, "11. fffnnn", "12. fffnnn navn");
+                    const nivå7 = slaaSammen(flatProps, "13. gggnnn", "14. gggnnn navn");
+                    const nivå8 = slaaSammen(flatProps, "15. hhhnnnnn", "16. hhhnnnnn navn");
+                    const nivå9 = flatProps["01. rds-tag"] || "Udefinert 01. RDS-tag";
+                    
+                    let objektNavn = flatProps["a006_objektnavn"] || flatProps["objekttype"] || obj.name || `Objekt ${actualRuntimeId}`;
+
+                    const harRDS = [nivå1, nivå2, nivå3, nivå4, nivå5, nivå6, nivå7, nivå8, nivå9].some(val => !val.includes("Udefinert"));
+                    
+                    if (!harRDS) {
+                        manglerRDSCount++;
+                        if (!GLOBAL_RDS_TREE[UTEN_RDS_MAPPE_NAVN]) { 
+                            GLOBAL_RDS_TREE[UTEN_RDS_MAPPE_NAVN] = { barn: {}, objekter: [] }; 
+                        }
+                        GLOBAL_RDS_TREE[UTEN_RDS_MAPPE_NAVN].objekter.push({ 
+                            navn: objektNavn, 
+                            modelId: mid, 
+                            runtimeId: actualRuntimeId,
+                            guid: globalId,
+                            flatProps: flatProps,
+                            groupedProps: groupedProps 
+                        });
+                        return; 
+                    } 
+
+                    const sti = [nivå1, nivå2, nivå3, nivå4, nivå5, nivå6, nivå7, nivå8, nivå9];
+                    let gjeldendeNivå = GLOBAL_RDS_TREE;
+                    
+                    sti.forEach((nodensNavn, indeks) => {
+                        if (!gjeldendeNivå[nodensNavn]) { gjeldendeNivå[nodensNavn] = { barn: {}, objekter: [] }; }
+                        if (indeks === sti.length - 1) {
+                            gjeldendeNivå[nodensNavn].objekter.push({ 
+                                navn: objektNavn, 
+                                modelId: mid, 
+                                runtimeId: actualRuntimeId,
+                                guid: globalId,
+                                flatProps: flatProps,
+                                groupedProps: groupedProps 
+                            });
+                        }
+                        gjeldendeNivå = gjeldendeNivå[nodensNavn].barn;
+                    });
+                });
+                totalObjects += chunk.length;
+            }
+        }
+
+        tegnOppTre(GLOBAL_RDS_TREE, $('mainContent'));
+        updateEditedIndicators();
+        updateColorIndicatorsUI(); 
+        
+        window.applyDoneStateToTree();
+        window.applyVisibilityToTree(); 
+        
+        setStatus(`✅ Bygget tre av ${totalObjects - manglerRDSCount} markeringer med RDS. ${manglerRDSCount} manglet RDS.`, 'ok');
+        $('scanSelBtn').disabled = false;
+        if(totalObjects > 0) $('colorBtn').disabled = false;
+
+    } catch (error) {
+        setStatus(`❌ Feil under trebygging: ${error.message}`, 'error');
+        $('scanSelBtn').disabled = false;
+    }
+}
+
+$('scanSelBtn').addEventListener('click', () => kjorSkanner());
+
+$('colorBtn').addEventListener('click', async () => {
+    if (!API) return;
+    try {
+        setStatus('⏳ Beregner fargekart...', '');
+        const colorPayloads = new Map();
+        const ghostPayloadIds = {}; 
+        
+        window.assignedColorsMap = new Map();
+
+        try { 
+            if (API.viewer.setObjectState) await API.viewer.setObjectState(undefined, { color: 'reset' }); 
+        } catch(e){}
+
+        function collectColors(levelDict, depth, currentTracker) {
+            for (const [key, nodeData] of Object.entries(levelDict)) {
+                
+                if (key === UTEN_RDS_MAPPE_NAVN) {
+                    nodeData.objekter.forEach(obj => {
+                        if (obj.runtimeId != null) {
+                            window.assignedColorsMap.set(`${obj.modelId}_${obj.runtimeId}`, 'rgba(128, 128, 128, 0.5)');
+                            if (!ghostPayloadIds[obj.modelId]) ghostPayloadIds[obj.modelId] = [];
+                            ghostPayloadIds[obj.modelId].push(Number(obj.runtimeId));
+                        }
+                    });
+                    continue; 
+                }
+
+                let nextTracker = currentTracker;
+
+                if (depth === 2) { 
+                    nextTracker = { index: 0, usedHhh: new Map() };
+                }
+
+                let myColorIndex = -1;
+                
+                if (depth === 7 && nextTracker) { 
+                    if (!nextTracker.usedHhh.has(key)) {
+                        nextTracker.usedHhh.set(key, nextTracker.index++);
+                    }
+                    myColorIndex = nextTracker.usedHhh.get(key) % PALETTE.length;
+                } else if (depth > 7 && currentTracker) {
+                    myColorIndex = currentTracker.myColorIndex; 
+                }
+
+                if (myColorIndex !== -1 && nodeData.objekter.length > 0) {
+                    if (!colorPayloads.has(myColorIndex)) colorPayloads.set(myColorIndex, {});
+                    let cMap = colorPayloads.get(myColorIndex);
+                    
+                    const rgba = PALETTE[myColorIndex];
+                    const rgbStr = `rgb(${rgba.r}, ${rgba.g}, ${rgba.b})`;
+
+                    nodeData.objekter.forEach(obj => {
+                        if (obj.runtimeId != null) {
+                            window.assignedColorsMap.set(`${obj.modelId}_${obj.runtimeId}`, rgbStr);
+                            
+                            if (!cMap[obj.modelId]) cMap[obj.modelId] = [];
+                            cMap[obj.modelId].push(Number(obj.runtimeId));
+                        }
+                    });
+                }
+
+                if (depth === 7) {
+                    nextTracker = { ...nextTracker, myColorIndex: myColorIndex };
+                }
+                
+                collectColors(nodeData.barn, depth + 1, nextTracker);
+            }
+        }
+
+        collectColors(GLOBAL_RDS_TREE, 0, null);
+
+        for (const [colIdx, modelMap] of colorPayloads.entries()) {
+            const modelObjectIds = [];
+            for (const [mid, ids] of Object.entries(modelMap)) {
+                modelObjectIds.push({ modelId: mid, objectRuntimeIds: ids });
+            }
+            
+            if (modelObjectIds.length > 0 && API.viewer.setObjectState) {
+                await API.viewer.setObjectState(
+                    { modelObjectIds: modelObjectIds }, 
+                    { color: PALETTE[colIdx] }
+                );
+            }
+        }
+
+        const ghostObjectsList = [];
+        for (const [mid, ids] of Object.entries(ghostPayloadIds)) {
+            ghostObjectsList.push({ modelId: mid, objectRuntimeIds: ids });
+        }
+        
+        if (ghostObjectsList.length > 0 && API.viewer.setObjectState) {
+             await API.viewer.setObjectState(
+                 { modelObjectIds: ghostObjectsList },
+                 { color: { r: 128, g: 128, b: 128, a: 127 } } 
+             );
+        }
+
+        updateColorIndicatorsUI(); 
+        $('resetColorBtn').style.display = 'inline-block';
+        setStatus('✅ Fargelegging fullført!', 'ok');
+        
+    } catch (err) {
+        console.error(err);
+        setStatus('❌ Feil under fargelegging.', 'error');
+    }
+});
+
+$('resetColorBtn').addEventListener('click', async () => {
+    try {
+        if (API.viewer.setObjectState) {
+            await API.viewer.setObjectState(undefined, { color: 'reset' });
+        }
+        
+        window.assignedColorsMap = new Map();
+        updateColorIndicatorsUI(); 
+        
+        $('resetColorBtn').style.display = 'none';
+        setStatus('💧 Farger nullstilt til standard.', 'ok');
+    } catch (err) {
+        console.error(err);
+    }
+});
+
+function oppdaterUI() {
+    const antall = EXPORT_QUEUE.length;
+    $('exportBtn').innerText = `💾 Eksporter (${antall})`;
+    $('exportBtn').disabled = antall === 0;
+    $('clearBtn').disabled = antall === 0;
+}
+
+$('clearBtn').addEventListener('click', () => {
+    if (!confirm(`Er du sikker på at du vil tømme eksport-køen for ${EXPORT_QUEUE.length} objekter? Dette kan ikke angres.`)) return;
+    EXPORT_QUEUE = [];
+    lagreKoe(); 
+    oppdaterUI();
+    updateEditedIndicators();
+    setStatus('🗑️ Køen er tømt.', 'ok');
+});
+
+$('queueBtn').addEventListener('click', async () => {
+    const newNumber = $('newRunningNumber').value.trim();
+    if (!newNumber) { alert("Du må skrive inn et nytt løpenummer først."); return; }
+    try {
+        setStatus('⏳ Henter markering...');
+        const selection = await API.viewer.getSelection();
+        let totalSelected = 0;
+        if (selection && selection.length > 0) selection.forEach(sel => { if (sel.objectRuntimeIds) totalSelected += sel.objectRuntimeIds.length; });
+        if (totalSelected === 0) { setStatus('⚠️ Ingen objekter er markert.', 'warn'); return; }
+
+        let addedCount = 0;
+        for (const sel of selection) {
+            const mid = sel.modelId;
+            const runtimeIds = sel.objectRuntimeIds; 
+            if (!runtimeIds || runtimeIds.length === 0) continue;
+            const propsArr = await API.viewer.getObjectProperties(mid, runtimeIds);
+            propsArr.forEach((obj, idx) => {
+                
+                const globalId = extractGuid(obj);
+                
+                const objRuntimeId = obj.id || obj.objectRuntimeId || runtimeIds[idx];
+                const flatProps = {}; 
+                
+                if (obj.properties) {
+                    for (const pset of obj.properties) {
+                        (pset.properties || []).forEach(p => {
+                            if (p.name) {
+                                const nameLower = p.name.trim().toLowerCase();
+                                const valStr = p.value !== undefined && p.value !== null ? String(p.value).trim() : "";
+                                if (valStr !== "") flatProps[nameLower] = valStr;
+                            }
+                        });
+                    }
+                }
+
+                EXPORT_QUEUE = EXPORT_QUEUE.filter(item => !(item.modelId === mid && item.runtimeId === objRuntimeId));
+                const updateItem = {
+                    GUID: globalId, modelId: mid, runtimeId: objRuntimeId,
+                    gammelRdsTag: flatProps["01. rds-tag"] || "", egenskaperSomSkalEndres: {}
+                };
+
+                LOPENUMMER_EGENSKAPER.forEach(propName => {
+                    const gammelVerdi = flatProps[propName];
+                    if (gammelVerdi) updateItem.egenskaperSomSkalEndres[propName] = gammelVerdi.replace(/\d{1,3}$/, newNumber);
+                });
+
+                if (Object.keys(updateItem.egenskaperSomSkalEndres).length > 0) { EXPORT_QUEUE.push(updateItem); addedCount++; }
+            });
+        }
+        
+        if (addedCount > 0) lagreKoe(); 
+        
+        oppdaterUI(); 
+        updateEditedIndicators();
+        setStatus(`✅ La til ${addedCount} objekter via hurtigoppdatering.`, 'ok');
+    } catch (error) { setStatus(`❌ Feil: ${error.message}`, 'error'); }
+});
+
+$('exportBtn').addEventListener('click', () => {
+    if (EXPORT_QUEUE.length === 0) return;
+    try {
+        const jsonString = JSON.stringify(EXPORT_QUEUE, null, 2);
+        const blob = new Blob([jsonString], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = `update-properties.json`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+        
+        setStatus(`🎉 Eksporterte JSON for ${EXPORT_QUEUE.length} objekter. Husk å tømme køen manuelt når du er ferdig!`, 'ok');
+    } catch (error) { setStatus(`❌ Feil under eksport: ${error.message}`, 'error'); }
+});
+
+window.clearRdsProperties = function() {
+    let rdsGroup = null;
+    let elementGroup = null;
+    
+    const detailsElements = $('modalForm').querySelectorAll('details');
+    detailsElements.forEach(det => {
+        const summary = det.querySelector('.pset-summary').innerText;
+        if (summary === '2_RDS') rdsGroup = det.querySelector('.pset-content');
+        if (summary === '0_Element') elementGroup = det.querySelector('.pset-content');
+    });
+    
+    if (rdsGroup) {
+        const inputs = rdsGroup.querySelectorAll('input.input-field');
+        inputs.forEach(inp => {
+            inp.value = '';
+            inp.style.backgroundColor = 'var(--red-dim)';
+            setTimeout(() => inp.style.backgroundColor = '', 500);
+        });
+    }
+    
+    if (!elementGroup) {
+        const newDetails = document.createElement('details');
+        newDetails.className = 'pset-group';
+        newDetails.open = true;
+        newDetails.innerHTML = `<summary class="pset-summary">0_Element</summary><div class="pset-content"></div>`;
+        $('modalForm').appendChild(newDetails);
+        elementGroup = newDetails.querySelector('.pset-content');
+    }
+    
+    ['Objekttype', 'Objektklasse'].forEach(propName => {
+        let existingInput = null;
+        elementGroup.querySelectorAll('input.input-field').forEach(inp => {
+            if (inp.getAttribute('data-prop').toLowerCase() === propName.toLowerCase()) {
+                existingInput = inp;
+            }
+        });
+        
+        if (existingInput) {
+            existingInput.value = 'NotApplicable';
+            existingInput.style.backgroundColor = 'var(--blue-dim)';
+            setTimeout(() => existingInput.style.backgroundColor = '', 500);
+        } else {
+            const div = document.createElement('div');
+            div.className = 'modal-form-group';
+            div.innerHTML = `
+               <label>${escapeHTML(propName)}</label>
+               <input type="text" class="input-field" data-prop="${escapeHTML(propName)}" data-original-value="__NEW__" value="NotApplicable" style="border-color:var(--blue);">
+            `;
+            elementGroup.appendChild(div);
+        }
+    });
+};
+
+window.addCustomPropToForm = function() {
+    const nameInp = $('newPropName');
+    const valInp = $('newPropValue');
+    const name = nameInp.value.trim();
+    const val = valInp.value.trim();
+    
+    if (!name) { alert('Du må skrive et egenskapsnavn for å legge til.'); return; }
+    
+    const inputs = $('modalForm').querySelectorAll('input.input-field[data-prop]');
+    let existing = null;
+    inputs.forEach(inp => {
+        if (inp.getAttribute('data-prop').toLowerCase() === name.toLowerCase()) {
+            existing = inp;
+        }
+    });
+    
+    if (existing) {
+        existing.value = val;
+        existing.style.backgroundColor = 'var(--green-dim)';
+        setTimeout(() => existing.style.backgroundColor = '', 1000);
+        nameInp.value = ''; valInp.value = '';
+        return;
+    }
+    
+    let rdsGroup = null;
+    const detailsElements = $('modalForm').querySelectorAll('details');
+    detailsElements.forEach(det => {
+        if (det.querySelector('.pset-summary').innerText === '2_RDS') {
+            rdsGroup = det.querySelector('.pset-content');
+        }
+    });
+    
+    if (!rdsGroup) {
+        const newDetails = document.createElement('details');
+        newDetails.className = 'pset-group';
+        newDetails.open = true;
+        newDetails.innerHTML = `<summary class="pset-summary">2_RDS</summary><div class="pset-content"></div>`;
+        $('modalForm').appendChild(newDetails);
+        rdsGroup = newDetails.querySelector('.pset-content');
+    }
+    
+    const div = document.createElement('div');
+    div.className = 'modal-form-group';
+    div.innerHTML = `
+       <label>${escapeHTML(name)}</label>
+       <input type="text" class="input-field" data-prop="${escapeHTML(name)}" data-original-value="__NEW__" value="${escapeHTML(val)}" style="border-color:var(--green);">
+    `;
+    rdsGroup.appendChild(div);
+    
+    nameInp.value = '';
+    valInp.value = '';
+    
+    const modalBox = $('modalBoxInner');
+    modalBox.scrollTop = modalBox.scrollHeight;
+};
+
+function openModalForObject(obj) {
+    currentEditTargets = [obj];
+    $('modalTitle').innerText = 'Rediger egenskaper';
+    $('modalSubtitle').innerText = obj.navn;
+    $('modalWarning').style.display = 'none';
+    
+    let html = '';
+    const psetKeys = Object.keys(obj.groupedProps).sort(naturligSortering);
+    
+    psetKeys.forEach(psetName => {
+        html += `<details class="pset-group" open>
+                    <summary class="pset-summary">${escapeHTML(psetName)}</summary>
+                    <div class="pset-content">`;
+        
+        const propKeys = Object.keys(obj.groupedProps[psetName]).sort(naturligSortering);
+        propKeys.forEach(prop => {
+            const val = obj.groupedProps[psetName][prop];
+            html += `<div class="modal-form-group">
+                       <label>${escapeHTML(prop)}</label>
+                       <input type="text" class="input-field" data-prop="${escapeHTML(prop)}" data-original-value="${escapeHTML(val)}" value="${escapeHTML(val)}">
+                     </div>`;
+        });
+        
+        html += `</div></details>`;
+    });
+    
+    $('modalForm').innerHTML = html;
+    $('editModal').style.display = 'flex';
+}
+
+function openModalForFolder(nodeName, nodeData) {
+    currentEditTargets = nodeData.objekter;
+    $('modalTitle').innerText = 'Batch-rediger mappe';
+    $('modalSubtitle').innerText = `${nodeName} (${currentEditTargets.length} objekter)`;
+    $('modalWarning').style.display = 'block';
+    
+    const allGroupedKeys = {};
+    currentEditTargets.forEach(obj => {
+        Object.keys(obj.groupedProps).forEach(psetName => {
+            if (!allGroupedKeys[psetName]) allGroupedKeys[psetName] = new Set();
+            Object.keys(obj.groupedProps[psetName]).forEach(propName => {
+                allGroupedKeys[psetName].add(propName);
+            });
+        });
+    });
+
+    let html = '';
+    Object.keys(allGroupedKeys).sort(naturligSortering).forEach(psetName => {
+        html += `<details class="pset-group" open>
+                    <summary class="pset-summary">${escapeHTML(psetName)}</summary>
+                    <div class="pset-content">`;
+        
+        Array.from(allGroupedKeys[psetName]).sort(naturligSortering).forEach(prop => {
+            let firstVal = undefined;
+            let firstValFound = false;
+            let isSame = true;
+            
+            for(let i = 0; i < currentEditTargets.length; i++) {
+                let checkObj = currentEditTargets[i];
+                let checkVal = (checkObj.groupedProps[psetName] && checkObj.groupedProps[psetName][prop] !== undefined) 
+                               ? checkObj.groupedProps[psetName][prop] : "";
+                
+                if (!firstValFound) {
+                    firstVal = checkVal;
+                    firstValFound = true;
+                } else if (checkVal !== firstVal) {
+                    isSame = false;
+                    break;
+                }
+            }
+
+            const displayVal = isSame ? escapeHTML(firstVal) : "";
+            const originalVal = isSame ? escapeHTML(firstVal) : "__MIXED__";
+            const placeholder = isSame ? "" : "Ulike verdier... Skriv her for å overskrive alle";
+
+            html += `<div class="modal-form-group">
+                       <label>${escapeHTML(prop)}</label>
+                       <input type="text" class="input-field" data-prop="${escapeHTML(prop)}" data-original-value="${originalVal}" value="${displayVal}" placeholder="${placeholder}">
+                     </div>`;
+        });
+        
+        html += `</div></details>`;
+    });
+    
+    $('modalForm').innerHTML = html;
+    $('editModal').style.display = 'flex';
+}
+
+function closeModal() { $('editModal').style.display = 'none'; }
+
+function saveModal() {
+    let hasChanges = false;
+    const inputs = $('modalForm').querySelectorAll('input.input-field[data-prop]');
+    const plannedChanges = {};
+    
+    inputs.forEach(inp => {
+        const propName = inp.getAttribute('data-prop');
+        const newVal = inp.value.trim();
+        const originalVal = inp.getAttribute('data-original-value');
+
+        if (originalVal === "__MIXED__" || originalVal === "__NEW__") {
+            if (newVal !== "") { plannedChanges[propName] = newVal; } 
+        } else {
+            if (newVal !== originalVal) { plannedChanges[propName] = newVal; }
+        }
+    });
+
+    if (Object.keys(plannedChanges).length === 0) { closeModal(); return; }
+
+    currentEditTargets.forEach(target => {
+        EXPORT_QUEUE = EXPORT_QUEUE.filter(item => !(item.modelId === target.modelId && item.runtimeId === target.runtimeId));
+        
+        const updateItem = {
+            GUID: target.guid,
+            modelId: target.modelId,
+            runtimeId: target.runtimeId,
+            gammelRdsTag: target.flatProps["01. rds-tag"] || "",
+            egenskaperSomSkalEndres: { ...plannedChanges } 
+        };
+        
+        EXPORT_QUEUE.push(updateItem);
+        hasChanges = true;
+    });
+
+    if (hasChanges) {
+        lagreKoe(); // Lagrer til minnet
+        oppdaterUI();
+        updateEditedIndicators();
+        setStatus(`✅ Lagret endringer i køen for ${currentEditTargets.length} objekter via skjema.`, 'ok');
+    }
+    closeModal();
+}
+
+function tellObjekter(nodeMap) { let count = nodeMap.objekter.length; for (const key in nodeMap.barn) { count += tellObjekter(nodeMap.barn[key]); } return count; }
+
+function hentAlleIds(nodeMap) { 
+    let idMap = {}; 
+    nodeMap.objekter.forEach(obj => { 
+        if (obj.runtimeId == null) return; 
+        if (!idMap[obj.modelId]) idMap[obj.modelId] = []; 
+        idMap[obj.modelId].push(Number(obj.runtimeId)); 
+    }); 
+    for (const key in nodeMap.barn) { 
+        const barnIds = hentAlleIds(nodeMap.barn[key]); 
+        for (const mid in barnIds) { 
+            if (!idMap[mid]) idMap[mid] = []; 
+            idMap[mid].push(...barnIds[mid]); 
+        } 
+    } 
+    return idMap; 
+}
+
+function formaterForMarkering(idMap) { return Object.keys(idMap).map(mid => ({ modelId: mid, objectRuntimeIds: idMap[mid] })); }
+
+function tegnOppTre(treStruktur, container, erRot = true, currentDepth = 0) {
+    let nøkler = Object.keys(treStruktur).sort(naturligSortering);
+    
+    if (erRot && nøkler.includes(UTEN_RDS_MAPPE_NAVN)) {
+        nøkler = nøkler.filter(k => k !== UTEN_RDS_MAPPE_NAVN);
+        nøkler.push(UTEN_RDS_MAPPE_NAVN);
+    }
+
+    if (nøkler.length === 0 && erRot) { container.innerHTML = '<div class="empty anim">Fant ingen objekter med RDS-egenskaper.</div>'; return; }
+    const wrapper = document.createElement('div');
+    if (erRot) { wrapper.className = 'tree-container anim'; container.appendChild(wrapper); }
+    
+    nøkler.forEach(nøkkel => {
+        const nodeData = treStruktur[nøkkel];
+        const totaltAntall = tellObjekter(nodeData);
+        if (totaltAntall === 0) return;
+        
+        const nodeDiv = document.createElement('div'); nodeDiv.className = erRot ? '' : 'tree-node';
+        const headerDiv = document.createElement('div'); headerDiv.className = 'tree-header';
+        const safeNøkkel = escapeHTML(nøkkel);
+        
+        const erLavesteMappe = Object.keys(nodeData.barn).length === 0;
+        const allIdsMap = hentAlleIds(nodeData);
+        let allIdsFlat = [];
+        for (const mid in allIdsMap) {
+            allIdsMap[mid].forEach(rid => allIdsFlat.push(`${mid}_${rid}`));
+        }
+        const idsString = allIdsFlat.join(',');
+        
+        headerDiv.setAttribute('data-folder-ids', idsString);
+        headerDiv.setAttribute('data-depth', currentDepth);
+
+        let editHtml = erLavesteMappe ? `<div class="tree-edit-btn" title="Endre egenskaper for alle objekter i mappen">✏️</div>` : '';
+
+        headerDiv.innerHTML = `<div class="tree-arrow">▶</div><div class="color-indicator"></div><div class="tree-title" title="${safeNøkkel}">${safeNøkkel}</div><div class="tree-count">${totaltAntall} obj</div>${editHtml}`;
+        const childrenDiv = document.createElement('div'); childrenDiv.className = 'tree-children';
+        
+        headerDiv._modelObjectIds = formaterForMarkering(allIdsMap);
+
+        headerDiv.onclick = async (e) => {
+            e.stopPropagation();
+            
+            const allRows = Array.from(document.querySelectorAll('.tree-header, .tree-object'));
+            if (!e.ctrlKey && !e.shiftKey) {
+                allRows.forEach(r => r.classList.remove('active'));
+                headerDiv.classList.add('active');
+                lastClickedElement = headerDiv;
+            } else if (e.ctrlKey) {
+                headerDiv.classList.toggle('active');
+                lastClickedElement = headerDiv;
+            } else if (e.shiftKey && lastClickedElement) {
+                window.getSelection().removeAllRanges(); 
+                const start = allRows.indexOf(lastClickedElement);
+                const end = allRows.indexOf(headerDiv);
+                const min = Math.min(start, end); const max = Math.max(start, end);
+                for (let i = min; i <= max; i++) { allRows[i].classList.add('active'); }
+            }
+
+            if (!e.shiftKey) {
+                const isOpen = childrenDiv.style.display === 'block'; childrenDiv.style.display = isOpen ? 'none' : 'block';
+                headerDiv.querySelector('.tree-arrow').innerText = isOpen ? '▼' : '▶';
+            }
+            
+            await sync3DSelection();
+        };
+
+        if (erLavesteMappe) {
+            const editBtn = headerDiv.querySelector('.tree-edit-btn');
+            if(editBtn) editBtn.onclick = (e) => { e.stopPropagation(); openModalForFolder(nøkkel, nodeData); };
+        }
+
+        if (Object.keys(nodeData.barn).length > 0) { tegnOppTre(nodeData.barn, childrenDiv, false, currentDepth + 1); }
+        
+        if (nodeData.objekter.length > 0) {
+            nodeData.objekter.sort((a, b) => naturligSortering(a.navn, b.navn)).forEach(obj => {
+                const objDiv = document.createElement('div'); objDiv.className = 'tree-object'; 
+                objDiv.setAttribute('data-id', `${obj.modelId}_${obj.runtimeId}`);
+                
+                objDiv.innerHTML = `<div class="color-indicator"></div><div class="tree-object-name" title="${obj.navn}">${obj.navn}</div><div class="tree-edit-btn" data-id="${obj.modelId}_${obj.runtimeId}" title="Endre egendefinerte egenskaper">✏️</div>`;
+                
+                objDiv._modelObjectIds = [{ modelId: obj.modelId, objectRuntimeIds: [Number(obj.runtimeId)] }];
+
+                objDiv.onclick = async (e) => { 
+                    e.stopPropagation(); 
+                    
+                    const allRows = Array.from(document.querySelectorAll('.tree-header, .tree-object'));
+                    if (!e.ctrlKey && !e.shiftKey) {
+                        allRows.forEach(r => r.classList.remove('active'));
+                        objDiv.classList.add('active');
+                        lastClickedElement = objDiv;
+                    } else if (e.ctrlKey) {
+                        objDiv.classList.toggle('active');
+                        lastClickedElement = objDiv;
+                    } else if (e.shiftKey && lastClickedElement) {
+                        window.getSelection().removeAllRanges(); 
+                        const start = allRows.indexOf(lastClickedElement);
+                        const end = allRows.indexOf(objDiv);
+                        const min = Math.min(start, end); const max = Math.max(start, end);
+                        for (let i = min; i <= max; i++) { allRows[i].classList.add('active'); }
+                    }
+
+                    await sync3DSelection();
+                };
+                
+                const objEditBtn = objDiv.querySelector('.tree-edit-btn');
+                objEditBtn.onclick = (e) => { e.stopPropagation(); openModalForObject(obj); };
+                
+                childrenDiv.appendChild(objDiv);
+            });
+        }
+        nodeDiv.appendChild(headerDiv); nodeDiv.appendChild(childrenDiv); (erRot ? wrapper : container).appendChild(nodeDiv);
+    });
+}
 
 connect();
 </script>
