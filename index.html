@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.29</title>
+  <title>RDS Universal Editor v3.31</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -178,7 +178,7 @@
     <img src="norconsult-logo-black.png" alt="Norconsult">
   </div>
   <div class="app-title">
-    <b>RDS Universal Editor v3.29</b>
+    <b>RDS Universal Editor v3.31</b>
     <span>Norconsult Norge</span>
     <em>Developed by Norconsult. Kontaktperson: Vidar.Metveit@norconsult.com</em>
   </div>
@@ -213,10 +213,7 @@
   <button class="btn btn-success" id="exportBtn" disabled>💾 Eksporter (0)</button>
 </div>
 
-<div id="statusBar">Kobler til Trimble Connect...</div>
-
 <main id="mainContent">
-  <!-- START-VEILEDNING -->
   <div class="guide-container anim">
     <h2>📘 Kom i gang med RDS Universal Editor</h2>
     <p>Dette er et verktøy utviklet for å forenkle og automatisere håndteringen av RDS-koder og andre IFC-egenskaper direkte i nettleseren.</p>
@@ -371,44 +368,53 @@ function getSelectionSignature(selArray) {
     return Array.from(extractSafeIds(selArray)).sort().join(',');
 }
 
-// --- NY OG EKSTREM ID-JEGER ---
+// --- KOMPLETT ID-JEGER ---
 function extractGuid(obj) {
-    // 1. Sjekk de standard Trimble Connect attributtene først
-    if (obj.externalId && obj.externalId !== "UKJENT_GUID") return String(obj.externalId);
-    if (obj.globalId && obj.globalId !== "UKJENT_GUID") return String(obj.globalId);
-    if (obj.ifcGuid && obj.ifcGuid !== "UKJENT_GUID") return String(obj.ifcGuid);
-    if (obj.guid && obj.guid !== "UKJENT_GUID") return String(obj.guid);
-
-    // 2. Trål gjennom alle Psets og egenskaper
+    let fallbackGuid = "";
+    
+    // 1. Går gjennom absolutt alle properties, inkludert system-psets som Reference Object
     if (obj.properties) {
         for (const pset of obj.properties) {
             for (const p of (pset.properties || [])) {
                 if (!p.name || p.value === undefined || p.value === null || p.value === "") continue;
-                const nameLower = String(p.name).trim().toLowerCase();
+                
+                const name = String(p.name).trim();
                 const valStr = String(p.value).trim();
 
-                // Fanger opp alle varianter av GUID/ObjID
-                if (nameLower.includes("guid") || nameLower.includes("globalid") || nameLower === "objid") {
+                // Finner akkurat det du ser i menyen
+                if (name === "GUID (IFC)" || name === "GUID (MS)" || name === "GlobalId") {
                     return valStr; 
+                }
+                
+                // Fallback hvis egenskapen har en liten skriveleif i en annen modell
+                const nameLower = name.toLowerCase();
+                if (nameLower.includes("guid") || nameLower === "objid") {
+                    fallbackGuid = valStr; 
                 }
             }
         }
     }
     
-    // 3. Ekstrem regex-jakt: Hvis ID-en ligger skjult i objektet uten navn!
+    // 2. Bruker fallback hvis vi fant en lignende egenskap
+    if (fallbackGuid !== "") return fallbackGuid;
+    
+    // 3. Fallback til Trimble Connect sine egne IDer hvis den mangler i menyen
+    if (obj.externalId && obj.externalId !== "UKJENT_GUID") return String(obj.externalId);
+    if (obj.globalId && obj.globalId !== "UKJENT_GUID") return String(obj.globalId);
+    if (obj.ifcGuid && obj.ifcGuid !== "UKJENT_GUID") return String(obj.ifcGuid);
+    if (obj.guid && obj.guid !== "UKJENT_GUID") return String(obj.guid);
+    
+    // 4. Ekstrem regex-søk gjennom objektet
     try {
         const jsonStr = JSON.stringify(obj);
-        // IFC-GUID er alltid nøyaktig 22 tegn (base64)
         const ifcGuidMatch = jsonStr.match(/([a-zA-Z0-9_$]{22})/);
         if (ifcGuidMatch) return ifcGuidMatch[1];
         
-        // Vanlig GUID er 36 tegn
         const normalGuidMatch = jsonStr.match(/([a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})/);
         if (normalGuidMatch) return normalGuidMatch[1];
     } catch(e) {}
 
-    // 4. Feilsøking (sladrer i konsollen)
-    console.error("⚠️ FANT INGEN GUID FOR DETTE OBJEKTET! Trykk F12 i nettleseren og se under for å inspisere kildekoden til objektet:", obj);
+    console.error("⚠️ FANT INGEN GUID FOR DETTE OBJEKTET:", obj);
     return "UKJENT_GUID";
 }
 
@@ -836,6 +842,7 @@ async function sync3DSelection() {
     }
 }
 
+// --- HOVEDSKANNEREN SOM HENTER EGENSKAPER ---
 async function kjorSkanner() {
     if (!API) return;
     $('scanSelBtn').disabled = true;
@@ -886,7 +893,8 @@ async function kjorSkanner() {
                         if (!pset.name) return;
                         const psetName = pset.name.trim();
                         const psetNameLower = psetName.toLowerCase();
-                        const isSystem = psetNameLower.startsWith('ifc') || SYSTEM_PSETS.includes(psetNameLower);
+                        // Filtrer bort system-psets for redigeringsvinduet (men ikke fra søket etter GUID)
+                        const isSystem = psetNameLower.startsWith('ifc') || SYSTEM_PSETS.includes(psetNameLower) || psetNameLower === "reference object";
 
                         (pset.properties || []).forEach(p => {
                             if (p.name) {
@@ -895,6 +903,7 @@ async function kjorSkanner() {
                                 
                                 if (valStr !== "") {
                                     flatProps[nameLower] = valStr;
+                                    // Bare legg til i groupedProps hvis det ikke er en system-pset
                                     if (!isSystem) {
                                         if (!groupedProps[psetName]) groupedProps[psetName] = {};
                                         groupedProps[psetName][p.name.trim()] = valStr;
