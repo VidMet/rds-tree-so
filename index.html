@@ -370,51 +370,26 @@ function getSelectionSignature(selArray) {
 
 // --- KOMPLETT ID-JEGER ---
 function extractGuid(obj) {
-    let fallbackGuid = "";
-    
-    // 1. Går gjennom absolutt alle properties, inkludert system-psets som Reference Object
+    // 1. Sjekk de offisielle ID-feltene som Trimble Connect bruker for å koble til IFC
+    if (obj.externalId && obj.externalId !== "UKJENT_GUID") return String(obj.externalId);
+    if (obj.globalId && obj.globalId !== "UKJENT_GUID") return String(obj.globalId);
+    if (obj.ifcGuid && obj.ifcGuid !== "UKJENT_GUID") return String(obj.ifcGuid);
+
+    // 2. Hvis disse er tomme, leter vi etter navngitte egenskaper 
+    // Vi ser KUN etter egenskaper som er standard IFC (ikke prosjektspesifikke)
     if (obj.properties) {
         for (const pset of obj.properties) {
             for (const p of (pset.properties || [])) {
-                if (!p.name || p.value === undefined || p.value === null || p.value === "") continue;
-                
-                const name = String(p.name).trim();
-                const valStr = String(p.value).trim();
-
-                // Finner akkurat det du ser i menyen
-                if (name === "GUID (IFC)" || name === "GUID (MS)" || name === "GlobalId") {
-                    return valStr; 
-                }
-                
-                // Fallback hvis egenskapen har en liten skriveleif i en annen modell
-                const nameLower = name.toLowerCase();
-                if (nameLower.includes("guid") || nameLower === "objid") {
-                    fallbackGuid = valStr; 
+                if (!p.name || p.value === undefined) continue;
+                const name = String(p.name).trim().toLowerCase();
+                // Kun søk etter standard IFC-navn, ikke "16. HHH..."
+                if (name === "globalid" || name === "ifcguid" || name === "guid") {
+                    return String(p.value).trim();
                 }
             }
         }
     }
     
-    // 2. Bruker fallback hvis vi fant en lignende egenskap
-    if (fallbackGuid !== "") return fallbackGuid;
-    
-    // 3. Fallback til Trimble Connect sine egne IDer hvis den mangler i menyen
-    if (obj.externalId && obj.externalId !== "UKJENT_GUID") return String(obj.externalId);
-    if (obj.globalId && obj.globalId !== "UKJENT_GUID") return String(obj.globalId);
-    if (obj.ifcGuid && obj.ifcGuid !== "UKJENT_GUID") return String(obj.ifcGuid);
-    if (obj.guid && obj.guid !== "UKJENT_GUID") return String(obj.guid);
-    
-    // 4. Ekstrem regex-søk gjennom objektet
-    try {
-        const jsonStr = JSON.stringify(obj);
-        const ifcGuidMatch = jsonStr.match(/([a-zA-Z0-9_$]{22})/);
-        if (ifcGuidMatch) return ifcGuidMatch[1];
-        
-        const normalGuidMatch = jsonStr.match(/([a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})/);
-        if (normalGuidMatch) return normalGuidMatch[1];
-    } catch(e) {}
-
-    console.error("⚠️ FANT INGEN GUID FOR DETTE OBJEKTET:", obj);
     return "UKJENT_GUID";
 }
 
