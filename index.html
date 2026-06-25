@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.27</title>
+  <title>RDS Universal Editor v3.28</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -178,7 +178,7 @@
     <img src="norconsult-logo-black.png" alt="Norconsult">
   </div>
   <div class="app-title">
-    <b>RDS Universal Editor v3.27</b>
+    <b>RDS Universal Editor v3.28</b>
     <span>Norconsult Norge</span>
     <em>Developed by Norconsult. Kontaktperson: Vidar.Metveit@norconsult.com</em>
   </div>
@@ -276,7 +276,28 @@
 
 <script>
 let API = null;
+
+// --- NY LOGIKK FOR AUTO-LAGRING AV KØ ---
 let EXPORT_QUEUE = [];
+
+function lagreKoe() {
+    try { localStorage.setItem('rds_export_queue', JSON.stringify(EXPORT_QUEUE)); } catch(e){}
+}
+
+function hentKoe() {
+    try {
+        const lagret = localStorage.getItem('rds_export_queue');
+        if (lagret) { 
+            EXPORT_QUEUE = JSON.parse(lagret); 
+            oppdaterUI(); 
+        }
+    } catch(e){}
+}
+
+// Hent inn køen umiddelbart når siden lastes
+hentKoe();
+// -----------------------------------------
+
 let currentEditTargets = []; 
 let lastClickedElement = null; 
 let GLOBAL_RDS_TREE = {}; 
@@ -352,11 +373,9 @@ function getSelectionSignature(selArray) {
     return Array.from(extractSafeIds(selArray)).sort().join(',');
 }
 
-// --- NY ROBUST ID-JEGER ---
 function extractGuid(obj) {
     let fallbackGuid = "";
     
-    // 1. Søk gjennom alle egenskaper først
     if (obj.properties) {
         for (const pset of obj.properties) {
             for (const p of (pset.properties || [])) {
@@ -364,11 +383,9 @@ function extractGuid(obj) {
                 const nameLower = String(p.name).trim().toLowerCase();
                 const valStr = String(p.value).trim();
 
-                // Eksakte treff som vi VET er riktige
                 if (nameLower === "guid (ifc)" || nameLower === "guid" || nameLower === "globalid" || nameLower === "ifcguid") {
                     return valStr; 
                 }
-                // Delvise treff som reserve
                 if (nameLower.includes("guid") || nameLower.includes("globalid") || nameLower === "objid") {
                     fallbackGuid = valStr; 
                 }
@@ -376,10 +393,8 @@ function extractGuid(obj) {
         }
     }
     
-    // 2. Bruk reserve-egenskap hvis vi fant en
     if (fallbackGuid !== "") return fallbackGuid;
     
-    // 3. Fallback til Trimble Connect sine interne ID-er
     if (obj.externalId && obj.externalId !== "UKJENT_GUID") return obj.externalId;
     if (obj.globalId && obj.globalId !== "UKJENT_GUID") return obj.globalId;
     if (obj.ifcGuid && obj.ifcGuid !== "UKJENT_GUID") return obj.ifcGuid;
@@ -852,7 +867,6 @@ async function kjorSkanner() {
                 propsArr.forEach((obj, index) => {
                     const actualRuntimeId = obj.id || obj.objectRuntimeId || chunk[index];
                     
-                    // --- BRUKER NY ID-JEGER HER ---
                     const globalId = extractGuid(obj);
 
                     const flatProps = {};
@@ -933,6 +947,8 @@ async function kjorSkanner() {
         }
 
         tegnOppTre(GLOBAL_RDS_TREE, $('mainContent'));
+        
+        // Pga hentKoe() vil eksport-køen allerede ligge i minnet her!
         updateEditedIndicators();
         updateColorIndicatorsUI(); 
         
@@ -1082,7 +1098,9 @@ function oppdaterUI() {
 }
 
 $('clearBtn').addEventListener('click', () => {
+    if (!confirm(`Er du sikker på at du vil tømme eksport-køen for ${EXPORT_QUEUE.length} objekter? Dette kan ikke angres.`)) return;
     EXPORT_QUEUE = [];
+    lagreKoe(); // Oppdaterer lagringen
     oppdaterUI();
     updateEditedIndicators();
     setStatus('🗑️ Køen er tømt.', 'ok');
@@ -1106,7 +1124,6 @@ $('queueBtn').addEventListener('click', async () => {
             const propsArr = await API.viewer.getObjectProperties(mid, runtimeIds);
             propsArr.forEach((obj, idx) => {
                 
-                // --- BRUKER NY ID-JEGER HER OGSÅ ---
                 const globalId = extractGuid(obj);
                 
                 const objRuntimeId = obj.id || obj.objectRuntimeId || runtimeIds[idx];
@@ -1138,6 +1155,9 @@ $('queueBtn').addEventListener('click', async () => {
                 if (Object.keys(updateItem.egenskaperSomSkalEndres).length > 0) { EXPORT_QUEUE.push(updateItem); addedCount++; }
             });
         }
+        
+        if (addedCount > 0) lagreKoe(); // Lagrer til minnet!
+        
         oppdaterUI(); 
         updateEditedIndicators();
         setStatus(`✅ La til ${addedCount} objekter via hurtigoppdatering.`, 'ok');
@@ -1154,12 +1174,8 @@ $('exportBtn').addEventListener('click', () => {
         a.href = url; a.download = `update-properties.json`;
         document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
         
-        const antallEksportert = EXPORT_QUEUE.length;
-        EXPORT_QUEUE = [];
-        oppdaterUI();
-        updateEditedIndicators();
-        
-        setStatus(`🎉 Eksporterte JSON-fil med ${antallEksportert} endringer. Køen er tømt.`, 'ok');
+        // FJERNET sletting av kø herfra, slik at ingenting mistes!
+        setStatus(`🎉 Eksporterte JSON for ${EXPORT_QUEUE.length} objekter. Husk å tømme køen manuelt når du er ferdig!`, 'ok');
     } catch (error) { setStatus(`❌ Feil under eksport: ${error.message}`, 'error'); }
 });
 
@@ -1397,6 +1413,7 @@ function saveModal() {
     });
 
     if (hasChanges) {
+        lagreKoe(); // Lagrer til minnet
         oppdaterUI();
         updateEditedIndicators();
         setStatus(`✅ Lagret endringer i køen for ${currentEditTargets.length} objekter via skjema.`, 'ok');
