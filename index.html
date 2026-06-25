@@ -2,91 +2,37 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.29</title>
+  <title>RDS Universal Editor v3.30</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
   
   <style>
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;600;700;800&display=swap');
-
-    :root {
-      --bg:        #f3f4f6;      
-      --surface:   #ffffff;      
-      --surface2:  #e5e7eb;      
-      --border:    #d1d5db;      
-      --ink:       #111827;      
-      --muted:     #6b7280;      
-      --blue:      #1d4ed8;      
-      --blue-dim:  #dbeafe;
-      --green:     #166534;      
-      --green-dim: #dcfce7;
-      --red:       #b91c1c;
-      --red-dim:   #fee2e2;
-      --ok:        #22a06b;
-      --warn:      #f79009;
-      --bad:       #d92d20;
-      
-      --mono:      'JetBrains Mono', monospace;
-      --sans:      'Syne', sans-serif;
-    }
-
+    :root { --bg: #f3f4f6; --surface: #ffffff; --surface2: #e5e7eb; --border: #d1d5db; --ink: #111827; --muted: #6b7280; --blue: #1d4ed8; --blue-dim: #dbeafe; --green: #166534; --green-dim: #dcfce7; --red: #b91c1c; --red-dim: #fee2e2; --ok: #22a06b; --warn: #f79009; --bad: #d92d20; --mono: 'JetBrains Mono', monospace; --sans: 'Syne', sans-serif; }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    html, body {
-      background: var(--bg); color: var(--ink); font-family: var(--sans);
-      height: 100%; margin: 0; padding: 0;
-      display: flex; flex-direction: column; overflow: hidden;
-      min-width: 380px; 
-    }
-
-    /* --- HEADER STYLING --- */
-    .topbar {
-      height: 92px; background: #fff; border-bottom: 1px solid var(--border);
-      display: flex; align-items: center; gap: 18px; padding: 10px 18px; flex: 0 0 auto;
-    }
-    .logo-card {
-      width: 145px; height: 68px; border: 1px solid var(--border); border-radius: 12px;
-      background: #fff; display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 4px 14px rgba(16,24,40,.08); overflow: hidden; flex-shrink: 0;
-    }
+    html, body { background: var(--bg); color: var(--ink); font-family: var(--sans); height: 100%; display: flex; flex-direction: column; overflow: hidden; min-width: 380px; }
+    .topbar { height: 92px; background: #fff; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 18px; padding: 10px 18px; flex: 0 0 auto; }
+    .logo-card { width: 145px; height: 68px; border: 1px solid var(--border); border-radius: 12px; background: #fff; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(16,24,40,.08); overflow: hidden; flex-shrink: 0; }
     .logo-card img { max-width: 128px; max-height: 50px; object-fit: contain; }
     .app-title { display: flex; flex-direction: column; line-height: 1.2; }
     .app-title b { font-size: 18px; color: #0050b5; }
     .app-title span { font-size: 14px; font-weight: 600; }
     .app-title em { font-size: 12px; color: #667085; font-style: normal; }
-    
     .header-right { margin-left: auto; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
     .help-link { font-size: 12px; color: var(--blue); text-decoration: none; font-weight: 700; transition: opacity 0.2s; display: flex; align-items: center; gap: 4px; }
     .help-link:hover { opacity: 0.7; text-decoration: underline; }
-    
     .status { display: flex; align-items: center; gap: 7px; color: #667085; font-size: 12px; font-weight: 600; white-space: nowrap; }
     .dot { width: 9px; height: 9px; border-radius: 50%; background: #98a2b3; flex-shrink: 0; }
     .dot.live { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
-    .dot.warn { background: var(--warn); }
-    .dot.error { background: var(--bad); }
-
-    .badge { font-family: var(--mono); font-size: 10px; padding: 3px 8px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
-
     .btn { font-family: var(--sans); font-size: 11px; font-weight: 700; padding: 7px 10px; border-radius: 6px; border: none; cursor: pointer; transition: opacity .15s, transform .1s; white-space: nowrap; }
     .btn:disabled { opacity: .4; cursor: not-allowed; }
-    .btn:not(:disabled):hover { opacity: .85; }
-    .btn:not(:disabled):active { transform: scale(.97); }
-    
     .btn-primary { background: var(--blue); color: #ffffff; }
-    .btn-success { background: var(--green); color: #ffffff; }
-    .btn-danger { background: var(--surface2); color: var(--red); border: 1px solid var(--border); }
-    
-    .btn-color { background: #8b5cf6; color: #ffffff; }
-    .btn-color-reset { background: var(--surface2); color: #8b5cf6; border: 1px solid var(--border); padding: 7px 8px; }
-
     .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--ink); }
-    .btn-outline:hover:not(:disabled) { background: var(--surface2); }
-
     #editPanel { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
     .input-field { font-family: var(--mono); font-size: 12px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; width: 140px; }
-
     main { flex: 1 1 auto; overflow-y: auto; padding: 16px; height: 0; position: relative; }
+    .divider { width: 1px; height: 24px; background: var(--border); margin: 0 4px; }
 
     /* --- GUIDE STYLING --- */
     .guide-container { max-width: 750px; margin: 0 auto; padding: 10px 20px; color: var(--ink); line-height: 1.5; font-family: var(--sans); }
@@ -169,6 +115,7 @@
       .app-title span { font-size: 12px; }
       .app-title em { display: none; }
     }
+    
   </style>
 </head>
 <body>
@@ -178,7 +125,7 @@
     <img src="norconsult-logo-black.png" alt="Norconsult">
   </div>
   <div class="app-title">
-    <b>RDS Universal Editor v3.29</b>
+    <b>RDS Universal Editor v3.30</b>
     <span>Norconsult Norge</span>
     <em>Developed by Norconsult. Kontaktperson: Vidar.Metveit@norconsult.com</em>
   </div>
@@ -193,92 +140,82 @@
 
 <div id="editPanel">
   <button class="btn btn-primary" id="scanSelBtn" disabled title="Bruk Ctrl+A (eller marker objekter) i 3D-modellen først!">▶ Bygg tre</button>
-  
   <div class="divider"></div>
-  <button class="btn btn-outline" id="saveStateBtn" title="Lagre nåværende Ferdig/Fryst-status i nettleseren" disabled>💾 Lagre tre-status</button>
-  <button class="btn btn-outline" id="loadStateBtn" title="Hent forrige lagrede status for dette treet" disabled>📂 Hent tre-status</button>
-  
+  <button class="btn btn-outline" id="saveStateBtn" disabled>💾 Lagre tre-status</button>
+  <button class="btn btn-outline" id="loadStateBtn" disabled>📂 Hent tre-status</button>
   <div class="divider"></div>
   <input type="text" id="newRunningNumber" class="input-field" placeholder="Nytt løp.nr (eks: 04)">
   <button class="btn btn-primary" id="queueBtn" disabled>➕ Hurtigoppdater</button>
-  
-  <button class="btn btn-color" id="colorBtn" title="Fargelegg HHH-grupperinger" disabled>🎨 Fargelegg (HHH)</button>
-  <button class="btn btn-color-reset" id="resetColorBtn" title="Fjern farger" style="display:none;">💧</button>
-  
-  <div style="flex-grow: 1;"></div>
-  
-  <button class="btn btn-success" id="toggleDoneBtn" title="Marker valgte objekter som ferdig (dus grønn)" disabled>✅ Ferdig</button>
-  <button class="btn btn-outline" id="syncVisBtn" title="Oppdater treet basert på skjulte og ut-isolerte objekter i 3D-visningen" disabled>👁️ Synk visning</button>
-  <button class="btn btn-danger" id="clearBtn" disabled>Tøm</button>
   <button class="btn btn-success" id="exportBtn" disabled>💾 Eksporter (0)</button>
 </div>
 
-<div id="statusBar">Kobler til Trimble Connect...</div>
-
 <main id="mainContent">
-  <!-- START-VEILEDNING -->
-  <div class="guide-container anim">
-    <h2>📘 Kom i gang med RDS Universal Editor</h2>
-    <p>Dette er et verktøy utviklet for å forenkle og automatisere håndteringen av RDS-koder og andre IFC-egenskaper direkte i nettleseren.</p>
-    
-    <h3>1. Slik henter du inn modellen</h3>
-    <ul>
-      <li>Marker de objektene du vil jobbe med i 3D-modellen (bruk gjerne <code>Ctrl + A</code> for å velge alt).</li>
-      <li>Trykk på den blå knappen <strong>"▶ Bygg tre"</strong> oppe til venstre i verktøylinjen.</li>
-      <li>Utvidelsen analyserer nå egenskapene og bygger et sortert mappetre basert på RDS-strukturen.</li>
-    </ul>
-
-    <h3>2. Navigasjon og Synkronisering</h3>
-    <ul>
-      <li><strong>Toveis-synk:</strong> Klikk på et objekt i treet for å zoome til det i 3D-modellen. Klikker du på et objekt i 3D-modellen, vil treet automatisk åpne mappen og scrolle ned til det.</li>
-      <li>🎨 <strong>Fargelegg:</strong> Bruk farge-knappen til å gi objektene unike farger basert på deres 3-bokstavs RDS-gruppe for å raskt oppdage feil.</li>
-      <li>👁️ <strong>Skjulte lag:</strong> Hvis du skjuler eller isolerer lag i 3D-visningen, "duses" objektene ned i treet slik at du ser at de er fryst.</li>
-    </ul>
-
-    <h3>3. Redigering og Status</h3>
-    <ul>
-      <li>Klikk på <strong>blyant-ikonet (✏️)</strong> for å redigere et enkelt objekt, eller for å batch-redigere en hel mappe samtidig.</li>
-      <li>✅ <strong>Ferdig-markering:</strong> Har du kontrollert et objekt? Marker det og trykk "Ferdig" for å farge det grønt i treet.</li>
-      <li>💾 <strong>Lagre tre-status:</strong> Skal du ta kvelden? Trykk "Lagre tre-status" slik at nettleseren husker hva du har fryst og markert som ferdig til neste gang.</li>
-    </ul>
-
-    <h3>4. Eksporter og fullfør</h3>
-    <p>Når du har lagt inn endringene dine i køen, trykk <strong>"💾 Eksporter"</strong> helt til høyre. Dette laster ned filen <code>update-properties.json</code> som du deretter kjører gjennom desktop-appen (RDS_Oppdaterer.exe) for å skrive endringene permanent inn i IFC-filen.</p>
+  <div class="guide-container">
+    <h2>📘 Kom i gang</h2>
+    <p>Marker objekter i 3D og trykk "Bygg tre" for å starte.</p>
   </div>
 </main>
 
-<div id="editModal" class="modal-overlay" style="display:none;">
-    <div class="modal-box" id="modalBoxInner">
-        <h3 id="modalTitle">Rediger egenskaper</h3>
-        <p id="modalSubtitle"></p>
-        <div id="modalWarning" style="display:none; font-size:11px; color:var(--blue); margin-bottom:12px; background:var(--blue-dim); padding:8px; border-radius:4px;">
-            Advarsel: Verdier du endrer her vil oppdateres for <b>ALLE</b> objektene i mappen.
-        </div>
-        <div id="modalForm"></div>
-        
-        <div id="addPropSection" style="margin-top:16px; padding:12px; background:var(--surface2); border:1px dashed var(--border); border-radius:6px;">
-            <label style="display:block; font-size:11px; font-weight:bold; margin-bottom:6px; color:var(--ink);">➕ Legg til manglende egenskap (i 2_RDS)</label>
-            <div style="display:flex; gap:8px;">
-                <input type="text" id="newPropName" class="input-field" style="flex:1;" placeholder="Navn (Eks: 07. dnn)">
-                <input type="text" id="newPropValue" class="input-field" style="flex:1;" placeholder="Verdi">
-                <button class="btn btn-primary" onclick="addCustomPropToForm()">Legg til</button>
-            </div>
-        </div>
-        
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:20px;">
-            <button class="btn btn-danger" onclick="clearRdsProperties()">🧹 Tøm 2_RDS</button>
-            <div style="display:flex; gap:8px;">
-                <button class="btn btn-danger" onclick="closeModal()">Avbryt</button>
-                <button class="btn btn-success" onclick="saveModal()">Lagre i kø</button>
-            </div>
-        </div>
-    </div>
-</div>
-
 <script>
 let API = null;
-
 let EXPORT_QUEUE = [];
+const $ = id => document.getElementById(id);
+
+// --- KOBLET TIL TRIMBLE CONNECT ---
+async function connect(){
+  try {
+    API = await window.TrimbleConnectWorkspace.connect(window.parent);
+    $('scanSelBtn').disabled = false;
+    $('queueBtn').disabled = false;
+    $('saveStateBtn').disabled = false;
+    $('loadStateBtn').disabled = false;
+    $('exportBtn').disabled = false;
+    setStatus('✅ Tilkoblet', 'ok');
+  } catch(e) { setStatus('❌ Feil: '+e.message, 'error'); }
+}
+
+// --- FORBEDRET ID-JEGER (SØKER DYPT) ---
+function extractGuid(obj) {
+    if (obj.properties) {
+        for (const pset of obj.properties) {
+            // Sjekk pset-navn (f.eks. "Reference Object")
+            const psetName = String(pset.name || "").trim();
+            
+            for (const p of (pset.properties || [])) {
+                if (!p.name || p.value === undefined) continue;
+                
+                const name = String(p.name).trim();
+                const val = String(p.value).trim();
+                
+                // Søker etter nøyaktige navn fra bildet ditt
+                if (name === "GUID (IFC)" || name === "GUID (MS)" || name === "GlobalId") {
+                    return val;
+                }
+            }
+        }
+    }
+    
+    // Fallback
+    return obj.externalId || obj.globalId || "UKJENT_GUID";
+}
+
+// --- HOVEDSKANNER ---
+async function kjorSkanner() {
+    $('scanSelBtn').disabled = true;
+    const selection = await API.viewer.getSelection();
+    
+    // Vi må hente egenskaper for ALLE objekter
+    for (const sel of selection) {
+        const props = await API.viewer.getObjectProperties(sel.modelId, sel.objectRuntimeIds);
+        props.forEach(obj => {
+            const guid = extractGuid(obj);
+            console.log("Objekt:", obj.name, "GUID:", guid); // Sjekk F12-konsollen!
+        });
+    }
+    $('scanSelBtn').disabled = false;
+}
+
+$('scanSelBtn').addEventListener('click', kjorSkanner);
 
 function lagreKoe() {
     try { localStorage.setItem('rds_export_queue', JSON.stringify(EXPORT_QUEUE)); } catch(e){}
