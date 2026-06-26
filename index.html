@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>RDS Universal Editor v3.33</title>
+  <title>RDS Universal Editor v3.34</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -178,7 +178,7 @@
     <img src="norconsult-logo-black.png" alt="Norconsult">
   </div>
   <div class="app-title">
-    <b>RDS Universal Editor v3.33</b>
+    <b>RDS Universal Editor v3.34</b>
     <span>Norconsult Norge</span>
     <em>Developed by Norconsult. Kontaktperson: Vidar.Metveit@norconsult.com</em>
   </div>
@@ -370,7 +370,7 @@ function getSelectionSignature(selArray) {
     return Array.from(extractSafeIds(selArray)).sort().join(',');
 }
 
-// --- NY, HELT REN ID-JEGER ---
+// --- DEN NYE OG KRASJ-SIKRE ID-JEGEREN ---
 function extractGuid(obj) {
     let foundGuid = "";
     let npGuid = "";
@@ -385,8 +385,8 @@ function extractGuid(obj) {
                 const nameLower = String(p.name).trim().toLowerCase();
                 const valStr = String(p.value).trim();
 
-                // Fanger eksakt "guid", spesielt under Novapoint
-                if (nameLower === "guid") {
+                // 1. Spesifikk sjekk for Novapoint Road -> GUID
+                if (nameLower === "guid" || nameLower === "objid") {
                     if (psetName === "novapoint road") {
                         npGuid = valStr;
                     } else {
@@ -394,7 +394,7 @@ function extractGuid(obj) {
                     }
                 }
                 
-                // Fanger IFC GUID / GlobalId
+                // 2. Spesifikk sjekk for standard IFC GUIDs
                 if (nameLower === "guid (ifc)" || nameLower === "globalid" || nameLower === "ifcguid") {
                     if (!foundGuid) foundGuid = valStr;
                 }
@@ -406,7 +406,25 @@ function extractGuid(obj) {
     if (npGuid !== "") return npGuid;
     if (foundGuid !== "") return foundGuid;
 
-    // Standard Trimble Connect fallback (hvis ingen egenskap ble funnet)
+    // 3. Krasj-sikker regex-jakt som overlever BigInt-problemet!
+    // Finner nøyaktig 22 tegn (IFC Base64) uansett hva feltet heter,
+    // slik at den plukker opp GUID-en selv om API-et gjemmer navnet.
+    try {
+        // VIKTIG: BigInt-fiks innebygd her for å forhindre krasj!
+        const jsonStr = JSON.stringify(obj, (k, v) => typeof v === 'bigint' ? v.toString() : v);
+        
+        // Matcher 22 tegn i IFC-alfabetet, og fjerner evt. "id. "-forstavelse automatisk
+        const ifcGuidMatch = jsonStr.match(/(?:id\.\s*)?([a-zA-Z0-9_$]{22})(?![a-zA-Z0-9_$])/);
+        if (ifcGuidMatch) return ifcGuidMatch[1];
+        
+        // Matcher vanlig GUID-format
+        const normalGuidMatch = jsonStr.match(/([a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})/);
+        if (normalGuidMatch) return normalGuidMatch[1];
+    } catch(e) {
+        console.error("Feil ved regex-søk etter GUID:", e);
+    }
+
+    // 4. Standard Trimble Connect attributter (siste utvei)
     if (obj.externalId && obj.externalId !== "UKJENT_GUID") return String(obj.externalId);
     if (obj.globalId && obj.globalId !== "UKJENT_GUID") return String(obj.globalId);
     if (obj.ifcGuid && obj.ifcGuid !== "UKJENT_GUID") return String(obj.ifcGuid);
